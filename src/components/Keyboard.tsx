@@ -128,7 +128,7 @@ export function Keyboard() {
         ))}
       </div>
       <div className={s.hint}>
-        Z 行 = 白键(C3 起)· Q 行 = 高八度 · S/D/G/H/J = 黑键 · SPACE 播放/停止 · ESC 停止
+        Z/Q 行写入音符(方向键移光标 · [ ] 调时值)· 点音符选中 + Backspace 删除 · ESC 取消选中 · SPACE 播放/停止
       </div>
     </footer>
   )

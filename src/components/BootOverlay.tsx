@@ -31,8 +31,8 @@ export function BootOverlay({ onBoot }: Props) {
         <div className={s.start}>▶ PRESS START ◀</div>
         <ul className={s.help}>
           <li>4 轨芯片音源:Pulse ×2 / Triangle Bass / Noise Drums</li>
-          <li>点格子放音符 · 横向拖拽改长度 · 再点 / 右键删除</li>
-          <li>Z/Q 行键盘试奏 · SPACE 播放 · 改动自动保存</li>
+          <li>点空格放置 · 点音符选中 · 拖动移位 / 右缘改长 · 右键删除</li>
+          <li>方向键移光标 · Z/Q 行写入 · Backspace 删除选中 · SPACE 播放</li>
         </ul>
       </div>
     </div>

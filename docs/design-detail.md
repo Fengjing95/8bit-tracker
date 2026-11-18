@@ -155,6 +155,7 @@ renderWav(): Promise<Blob>               // 委托 exporter,使用当前已同�
 - 布局常量(JS 单一来源,与 CSS 渐变周期对齐):`CW=30px`、`GUTTER=52px`、行高 22(鼓行 30);
 - **底格不逐格出 DOM**:拍点亮色(每 4 格 = 120px 周期)、小节分隔线(每 16 格 = 480px 周期)与底色由行内 `repeating-linear-gradient` 绘制(`.stripes`),小节数 1–64 任意可调时行 DOM 是常量,标尺刻度(`16×bars` 个)是唯一的线性增长项;
 - **播放头覆盖列**:每行一个 `[data-ph]` 绝对定位色条,`engine.onStepPlayed` 回调里直接 `translateX(GUTTER + step×CW)` 平移(每步约 29 次 style 写入),替代旧的逐格 class 切换;
+- **键盘写入光标**:store 持有 `caret {step,pitch}` 与 `insertLen`,Grid 渲染单个绝对定位 ghost 块(`.caret`,低频更新走 React state);
 - `PitchRow = memo`:以 **音高行** 为粒度;`useNotesByPitch` 在 notes 变化时按行重建,但**行内数组内容不变则保留旧引用**(音符对象不可变)⇒ 改动一个音符只重渲染所在行;
 - 音符块为行内绝对定位元素(`left = GUTTER + step×CW`,`width = len×CW`),`data-step/data-len/data-pitch` 供交互、删除与发声加亮(`.ring`)使用;鼓行复用同一音符块结构(宽 1 格,按鼓件着色);
 - 鼓轨 `DrumRow`:4 行(Kick 红 / Snare 黄 / Hi-hat 青 / Crash 品红),单元格按 `(step, kind)` 开关,颜色区分鼓件。
@@ -170,19 +171,22 @@ engine.onStepPlayed(step):
 
 每步仅 ~几十次 classList 操作,无 re-render。
 
-### 5.3 指针交互状态机(pitched)
+### 5.3 指针交互状态机(pitched,选中模型)
 
 ```
-pointerdown 空格      → addNote(默认 len=2)→ 进入 resize 会话(placedNew=true)
-pointerdown 音符      → 进入 resize 会话(placedNew=false)
-pointermove           → step = clamp(⌊(x−rowLeft−GUTTER)/CW⌋);len 变化即实时写 store
-pointerup             → placedNew=false 且未移动 → removeNote(即"再点删除");否则提交
-contextmenu           → preventDefault;命中音符则删除
+pointerdown 空格              → addNote(len = insertLen)→ 选中该音符
+pointerdown 音符              → 选中(不删除):光标吸附到音符,实线黄框包裹
+  ├ 右缘 10px 拖动            → resize:横向改时值
+  └ 其余区域拖动              → move:移位(步进 + 音高),选中跟随(setNotePos 返回实际落点)
+pointerup                     → 无删除语义(防误操作)
+contextmenu                   → preventDefault;命中音符则删除(显式快捷删除)
+Esc(键盘)                   → 先取消选中;无选中时停止播放
 ```
 
-命中计算基于 `row.getBoundingClientRect()` + 常量几何,音符块覆盖其他单元格时依然正确。
+选中与插入统一由光标承载:落在音符上为选中态(实线框),落在空格为插入态(虚线 ghost,宽度 = insertLen)。
+命中计算基于常量几何(rect + CW/GUTTER/RH);move 用 lanes 容器几何而非 DOM 命中,并以"当前位置"为源持续更新(否则首格之后源查找落空)。
 
-### 5.4 试奏键位(`lib/keys.ts`,按 `e.code` 布局无关)
+### 5.4 键盘编辑(tracker 键位,`lib/keys.ts` 按 `e.code` 布局无关)
 
 | 键 | 音 | 键 | 音 |
 | --- | --- | --- | --- |
@@ -190,6 +194,8 @@ contextmenu           → preventDefault;命中音符则删除
 
 - 底部虚拟键盘与键位一一对应(白键标字母,C 键标音名);
 - Space = 播放/停止,Esc = 停止,鼓轨下 Z/X/C/V 试奏 Kick/Snare/Hi-hat/Crash;
+- **键盘写入**:方向键移动网格光标(Shift+左右 ±4 步),Z/Q 行字符键在光标步写入对应音高并前进一格(`writeNote` 单音覆盖本步),`[` `]` 调整写入时值(鼠标放置共用此时值);移动音高与写入均有 160ms 短促试听;
+- **删除语义**:Backspace = 光标处有音符(点击选中态)→ 删除之;否则回退一格删除(打字流"打错即退即重打")。Delete = 删除光标处音符(先精确 (step,pitch),否则本步任意音高并把光标对齐过去)。Esc = 取消选中,再按停止播放;
 - `e.repeat` 忽略;输入控件聚焦时不劫持;窗口失焦统一 `releaseAllPreviews`(安全停 4s 兜底)。
 
 ## 6. UI 样式规格

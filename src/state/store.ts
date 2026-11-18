@@ -8,6 +8,8 @@ import { createDemoProject, createEmptyProject } from '../song-demo'
 import {
   DEFAULT_NOTE_LEN,
   MAX_BARS,
+  PITCH_MAX,
+  PITCH_MIN,
   stepCountOf,
   type InstrumentId,
   type Note,
@@ -27,10 +29,26 @@ interface AppState {
   selected: number
   playing: boolean
   toast: ToastData | null
+  /** 键盘写入光标(音轨网格上的插入位置) */
+  caret: { step: number; pitch: number } | null
+  /** 键盘写入时值(步数),由 [ / ] 调整 */
+  insertLen: number
 
   setBpm: (bpm: number) => void
   setBars: (bars: number) => void
   select: (i: number) => void
+  setCaret: (c: { step: number; pitch: number } | null) => void
+  setInsertLen: (n: number) => void
+  /** 键盘写入:单音覆盖 step 列后插入 */
+  writeNote: (i: number, step: number, pitch: number, len: number) => void
+  /** 拖动音符:整体移动(位置 + 音高),目标被占则原地不动;返回实际落点(被阻挡时为 null) */
+  setNotePos: (
+    i: number,
+    fromStep: number,
+    fromPitch: number,
+    toStep: number,
+    toPitch: number,
+  ) => { step: number; pitch: number } | null
   setVolume: (i: number, volume: number) => void
   toggleMute: (i: number) => void
   toggleSolo: (i: number) => void
@@ -74,6 +92,8 @@ export const useStore = create<AppState>()((set, get) => ({
   selected: 0,
   playing: false,
   toast: null,
+  caret: null,
+  insertLen: DEFAULT_NOTE_LEN,
 
   setBpm: (bpm) =>
     set((st) => ({
@@ -96,10 +116,48 @@ export const useStore = create<AppState>()((set, get) => ({
               .map((n) => ({ ...n, len: Math.min(n.len, sc - n.step) })),
           })),
         },
+        // 光标同步钳制在新的步数范围内
+        caret: st.caret
+          ? { step: Math.min(st.caret.step, sc - 1), pitch: st.caret.pitch }
+          : null,
       }
     }),
 
   select: (i) => set({ selected: i }),
+
+  setCaret: (c) => set({ caret: c }), // c 可为 null(Esc 取消选中)
+
+  setInsertLen: (n) => set({ insertLen: Math.max(1, Math.min(32, Math.round(n))) }),
+
+  writeNote: (i, step, pitch, len) =>
+    set((st) => {
+      const sc = stepCountOf(st.project.bars)
+      const l = Math.max(1, Math.min(len, sc - step))
+      return patchTrack(st, i, (t) => ({
+        ...t,
+        // 单音覆盖:清除本步其他音高的音符后写入
+        notes: [...t.notes.filter((n) => n.step !== step), { step, pitch, len: l }],
+      }))
+    }),
+
+  setNotePos: (i, fromStep, fromPitch, toStep, toPitch) => {
+    let result: { step: number; pitch: number } | null = null
+    set((st) => {
+      const sc = stepCountOf(st.project.bars)
+      return patchTrack(st, i, (t) => {
+        const note = t.notes.find((n) => n.step === fromStep && n.pitch === fromPitch)
+        if (!note) return t
+        const ts = Math.max(0, Math.min(toStep, Math.max(0, sc - note.len)))
+        const tp = Math.max(PITCH_MIN, Math.min(PITCH_MAX, toPitch))
+        if (ts === fromStep && tp === fromPitch) return t
+        const rest = t.notes.filter((n) => n !== note)
+        if (rest.some((n) => n.step === ts && n.pitch === tp)) return t // 目标被占,原地不动
+        result = { step: ts, pitch: tp }
+        return { ...t, notes: [...rest, { ...note, step: ts, pitch: tp }] }
+      })
+    })
+    return result
+  },
 
   setVolume: (i, volume) =>
     set((st) => patchTrack(st, i, (t) => ({ ...t, volume }))),
@@ -114,14 +172,16 @@ export const useStore = create<AppState>()((set, get) => ({
     set((st) => patchTrack(st, i, (t) => ({ ...t, instrument: inst }))),
 
   addNote: (i, step, pitch) =>
-    set((st) =>
-      patchTrack(st, i, (t) => {
+    set((st) => {
+      const sc = stepCountOf(st.project.bars)
+      // 鼠标放置与键盘写入共用 insertLen 时值
+      const len = Math.max(1, Math.min(st.insertLen, sc - step))
+      return patchTrack(st, i, (t) => {
         if (t.notes.some((n) => sameCell(n, step, pitch))) return t
-        const len = Math.min(DEFAULT_NOTE_LEN, stepCountOf(st.project.bars) - step)
         const note: Note = { step, pitch, len }
         return { ...t, notes: [...t.notes, note] }
-      }),
-    ),
+      })
+    }),
 
   removeNote: (i, step, pitch) =>
     set((st) =>
