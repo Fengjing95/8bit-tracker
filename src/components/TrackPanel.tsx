@@ -37,12 +37,15 @@ export function TrackPanel() {
           </div>
 
           {t.instrument !== 'triangle' && t.instrument !== 'noise' && (
-            <div className={s.duty} onClick={(e) => e.stopPropagation()}>
+            <div className={s.duty}>
               {PULSE_IDS.map((id: InstrumentId) => (
                 <button
                   key={id}
                   className={`${s.dutyBtn} ${t.instrument === id ? s.dutyOn : ''}`}
-                  onClick={() => setInstrument(i, id)}
+                  onClick={(e) => {
+                    e.stopPropagation() // 控件本身不触发选中
+                    setInstrument(i, id)
+                  }}
                 >
                   {DUTY_LABEL[id]}
                 </button>
@@ -50,29 +53,37 @@ export function TrackPanel() {
             </div>
           )}
 
-          <div className={s.vol} onClick={(e) => e.stopPropagation()}>
+          <div className={s.vol}>
             <span className={s.volLabel}>VOL</span>
             <input
               type="range"
               min={0}
               max={100}
               value={t.volume}
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
               onChange={(e) => setVolume(i, Number(e.target.value))}
             />
             <span className={s.volVal}>{String(t.volume).padStart(3, '0')}</span>
           </div>
 
-          <div className={s.switches} onClick={(e) => e.stopPropagation()}>
+          <div className={s.switches}>
             <button
               className={`${s.sw} ${t.muted ? s.muteOn : ''}`}
-              onClick={() => toggleMute(i)}
+              onClick={(e) => {
+                e.stopPropagation() // 控件本身不触发选中
+                toggleMute(i)
+              }}
               title="静音"
             >
               M
             </button>
             <button
               className={`${s.sw} ${t.solo ? s.soloOn : ''}`}
-              onClick={() => toggleSolo(i)}
+              onClick={(e) => {
+                e.stopPropagation() // 控件本身不触发选中
+                toggleSolo(i)
+              }}
               title="独奏"
             >
               S
