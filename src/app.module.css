@@ -1,0 +1,17 @@
+/* 应用骨架:100vh 三段布局 */
+.app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  border-top: 2px solid var(--line);
+  border-bottom: 2px solid var(--line);
+}

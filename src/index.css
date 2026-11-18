@@ -1,0 +1,103 @@
+/* 全局主题:像素风 token / reset / 扫描线 / 像素控件 */
+:root {
+  --bg: #0b0d10;
+  --panel: #141920;
+  --panel2: #1a2029;
+  --line: #2c3542;
+  --text: #d7e2ea;
+  --dim: #7a8a99;
+  --green: #3dff7c;
+  --cyan: #39dcff;
+  --magenta: #ff4fd8;
+  --yellow: #ffd23f;
+  --red: #ff5c5c;
+  --font-px: 'Press Start 2P', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    -apple-system, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+    'Segoe UI', sans-serif;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* CRT 扫描线(克制) */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.14) 0px,
+    rgba(0, 0, 0, 0.14) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+button {
+  font: inherit;
+}
+
+::selection {
+  background: var(--green);
+  color: #04220f;
+}
+
+:focus-visible {
+  outline: 2px dashed var(--cyan);
+  outline-offset: 2px;
+}
+
+/* ── range 滑条(方形拇指) ── */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 18px;
+  background: transparent;
+  cursor: pointer;
+}
+input[type='range']::-webkit-slider-runnable-track {
+  height: 10px;
+  background: #0a0e13;
+  border: 2px solid #04070a;
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 16px;
+  margin-top: -5px;
+  background: var(--green);
+  border: 2px solid #04070a;
+  box-shadow: 1px 1px 0 #000;
+}
+input[type='range']::-moz-range-track {
+  height: 10px;
+  background: #0a0e13;
+  border: 2px solid #04070a;
+}
+input[type='range']::-moz-range-thumb {
+  width: 12px;
+  height: 16px;
+  border-radius: 0;
+  background: var(--green);
+  border: 2px solid #04070a;
+  box-shadow: 1px 1px 0 #000;
+}

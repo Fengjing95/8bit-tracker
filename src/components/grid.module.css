@@ -1,0 +1,188 @@
+/* 网格:单元格宽 30px / 行标签宽 52px 必须与 Grid.tsx 中 CW / GUTTER 常量一致。
+   底格/拍点/小节线用 repeating-gradient 绘制(周期 30px/120px/480px),
+   不逐格出 DOM,小节数 1–64 任意可调。 */
+
+.wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  min-height: 0;
+}
+
+.scroller {
+  flex: 1;
+  overflow: auto;
+  background: var(--bg);
+}
+
+/* ── 标尺 ── */
+.ruler {
+  display: flex;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  width: max-content;
+  min-width: 100%;
+  background: var(--panel);
+  border-bottom: 2px solid var(--line);
+}
+
+.corner {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  flex: 0 0 52px;
+  width: 52px;
+  font-family: var(--font-px);
+  font-size: 7px;
+  color: var(--dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel2);
+  border-right: 2px solid var(--line);
+}
+
+.rulerCell {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 20px;
+  font-family: var(--font-px);
+  font-size: 7px;
+  color: var(--dim);
+  text-align: center;
+  line-height: 20px;
+  background: var(--panel);
+  border-left: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.rulerBeat {
+  color: var(--green);
+}
+
+.rulerBar {
+  color: var(--yellow);
+  background: var(--panel2);
+}
+
+/* ── 行 ── */
+.lanes {
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  min-width: 100%;
+}
+
+.row {
+  display: flex;
+  position: relative;
+  height: 22px;
+  min-width: 100%;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.rowLabel {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  flex: 0 0 52px;
+  width: 52px;
+  box-sizing: border-box;
+  background: var(--panel2);
+  border-right: 2px solid var(--line);
+  font-family: var(--font-px);
+  font-size: 8px;
+  color: var(--dim);
+  display: flex;
+  align-items: center;
+  padding-left: 6px;
+}
+
+.octRow {
+  border-top: 2px solid #34425a;
+}
+
+.octRow .rowLabel {
+  color: var(--green);
+}
+
+/* ── 底格条纹(渐变代替逐格 DOM) ── */
+/* 第一层:小节线(每 16 格 = 480px,起点 2px 竖线);第二层:拍点亮色(每 4 格) + 底色 */
+.stripes {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 52px; /* GUTTER */
+  background-image: repeating-linear-gradient(
+      to right,
+      #314052 0 2px,
+      transparent 2px 480px
+    ),
+    repeating-linear-gradient(to right, #171e27 0 30px, #12161d 30px 120px);
+}
+
+.blackRow .stripes {
+  background-image: repeating-linear-gradient(
+      to right,
+      #314052 0 2px,
+      transparent 2px 480px
+    ),
+    repeating-linear-gradient(to right, #131922 0 30px, #0e1116 30px 120px);
+}
+
+/* ── 播放头覆盖列(播放时由 Grid 用 ref 平移) ── */
+.phColumn {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 30px;
+  z-index: 2;
+  background: rgba(61, 255, 124, 0.16);
+  pointer-events: none;
+}
+
+/* ── 音符块 ── */
+.note {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  z-index: 3;
+  background: var(--nc);
+  border: 1px solid #04070a;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.3),
+    inset -3px 0 0 rgba(0, 0, 0, 0.45);
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.note:hover {
+  filter: brightness(1.15);
+}
+
+.note.ring {
+  filter: brightness(1.4);
+}
+
+/* ── 鼓行 ── */
+.drumRow {
+  height: 30px;
+}
+
+.drumKick {
+  color: var(--red);
+}
+
+.drumSnare {
+  color: var(--yellow);
+}
+
+.drumHat {
+  color: var(--cyan);
+}
+
+.drumCrash {
+  color: var(--magenta);
+}

@@ -1,0 +1,138 @@
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 16px;
+  background: var(--panel);
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-px);
+  font-size: 14px;
+  color: var(--green);
+  text-shadow: 3px 3px 0 #0a3d1e;
+  letter-spacing: 1px;
+}
+
+.group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.playBtn {
+  font-family: var(--font-px);
+  font-size: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  border: 2px solid #04070a;
+  box-shadow: 3px 3px 0 #000;
+  color: #04220f;
+}
+.isPlay {
+  background: var(--green);
+}
+.isStop {
+  background: var(--red);
+  color: #2b0404;
+}
+.playBtn:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 #000;
+}
+
+.loopBadge {
+  font-family: var(--font-px);
+  font-size: 8px;
+  color: var(--cyan);
+  border: 2px solid var(--cyan);
+  padding: 6px 8px;
+  background: rgba(57, 220, 255, 0.08);
+}
+
+.label {
+  font-family: var(--font-px);
+  font-size: 9px;
+  color: var(--dim);
+}
+
+.stepBtn {
+  font-family: var(--font-px);
+  font-size: 10px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  cursor: pointer;
+  background: var(--panel2);
+  color: var(--text);
+  border: 2px solid #04070a;
+  box-shadow: 2px 2px 0 #000;
+}
+.stepBtn:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 #000;
+}
+
+.bpmNum {
+  font-family: var(--font-px);
+  font-size: 12px;
+  color: var(--yellow);
+  min-width: 52px;
+  text-align: center;
+}
+
+.barsInput {
+  font-family: var(--font-px);
+  font-size: 12px;
+  color: var(--cyan);
+  width: 56px;
+  padding: 7px 4px;
+  text-align: center;
+  background: #0a0e13;
+  border: 2px solid #04070a;
+  box-shadow: 2px 2px 0 #000;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.barsInput::-webkit-outer-spin-button,
+.barsInput::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.barsInput:focus {
+  outline: 2px solid var(--cyan);
+  outline-offset: -4px;
+}
+
+.bpmSlider {
+  width: 130px;
+}
+
+.pbtn {
+  font-family: var(--font-px);
+  font-size: 8px;
+  padding: 9px 10px;
+  cursor: pointer;
+  background: var(--panel2);
+  color: var(--text);
+  border: 2px solid #04070a;
+  box-shadow: 3px 3px 0 #000;
+}
+.pbtn:hover {
+  background: #232c38;
+}
+.pbtn:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 #000;
+}
+.pbtn:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.fileInput {
+  display: none;
+}

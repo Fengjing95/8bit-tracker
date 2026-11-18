@@ -1,0 +1,20 @@
+.toast {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  font-family: var(--font-px);
+  font-size: 9px;
+  color: var(--green);
+  background: var(--panel);
+  border: 2px solid var(--green);
+  box-shadow: 4px 4px 0 #000;
+  padding: 10px 14px;
+  max-width: 80vw;
+}
+
+.err {
+  color: var(--red);
+  border-color: var(--red);
+}
