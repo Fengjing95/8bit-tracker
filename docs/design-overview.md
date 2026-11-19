@@ -8,7 +8,7 @@
 | --- | --- |
 | 音轨 | 4 条:Pulse Lead / Pulse Harmony / Triangle Bass / Noise Drums |
 | 音序器 | 小节数可调(1–64 任意整数,工具栏 − / + 或直接键入,默认 2 小节 × 16 分音符 = 32 步);网格纵向为音高(25 行,MIDI 48–72 即 C3–C5),横向为步进 |
-| 编辑 | 鼠标:点空格放置、点音符选中(黄框)、拖动移位/右缘改长、右键删除;键盘:方向键移光标、Z/Q 行写入、Backspace/Delete 删除选中;播放列高亮实时跟随 |
+| 编辑 | 鼠标:点空格放置、点音符选中(黄框)、拖动移位/右缘改长、右键删除;键盘:方向键移光标、Z/Q 行写入、Backspace/Delete 删除选中;撤销/重做(Ctrl/Cmd+Z / Shift+Z 或 Ctrl+Y,工具栏按钮);播放列高亮实时跟随,播放头自动滚屏跟随 |
 | 鼓轨 | 4 行鼓机(Kick / Snare / Hi-hat / Crash),点击开关,颜色区分鼓件 |
 | 试奏 | 底部虚拟键盘 + tracker 电脑键位(Z 行白键、Q 行高八度、S/D/G/H/J 黑键) |
 | 传输 | 播放/停止/循环(内置循环)、BPM 可调;每轨音量、静音、独奏 |
@@ -63,7 +63,8 @@
 | 文件 | 职责 | 依赖 |
 | --- | --- | --- |
 | `src/audio/engine.ts` | 引擎单例:Context 创建/恢复、母线与轨道增益、项目同步、试奏、播放头分发、导出 | instruments / scheduler / exporter / model |
-| `src/audio/scheduler.ts` | lookahead 步进调度(25ms 定时器 / 120ms 前瞻)+ rAF 视觉队列 | model |
+| `src/audio/scheduler.ts` | lookahead 步进调度(Worker 心跳 25ms / 120ms 前瞻,构造失败降级主线程定时器)+ rAF 视觉队列 | model |
+| `src/audio/scheduler.worker.ts` | 调度心跳 Worker:后台标签页不被节流,postMessage('tick') 驱动主线程排程 | — |
 | `src/audio/instruments.ts` | 音色合成:PeriodicWave 缓存、噪声缓冲、Voice 包络、鼓组、母线、混音计算 | model |
 | `src/audio/exporter.ts` | 离线渲染(2 遍循环 + 尾音)与 WAV 编码 | instruments / model |
 | `src/state/model.ts` | 数据模型 + 常量 + `sanitizeProject` 校验 | — |
@@ -105,12 +106,12 @@ project = {
 
 ```
 store.playTransport → engine.play → scheduler.start
-  └─ setInterval 25ms:while (nextTime < now + 120ms) 按步调度
+  └─ Worker 心跳 25ms(降级:主线程 setInterval):收到 'tick' → while (nextTime < now + 120ms) 按步调度
        ├─ onSchedule(step, time, stepDur):查音符索引 → playVoice/playDrum(ctx, trackGain[i], …)
        └─ 视觉队列 push {step, time}
-  └─ rAF:time 到点后 → engine 分发当前步 → Grid(ref)切换列 class
+  └─ rAF:time 到点后 → engine 分发当前步 → Grid(ref)切换列 class(并做播放头自动滚屏)
 BPM 变更:stepDur 每步实时读取,下一拍立即生效
-停止:停定时器 + cancelAndHold 快速收掉所有 voice + 分发 step=-1 清高亮
+停止:停心跳 + cancelAndHold 快速收掉所有 voice + 分发 step=-1 清高亮
 ```
 
 ### 6.3 编辑
@@ -137,7 +138,7 @@ Toolbar → engine.renderWav → renderProjectToWav(project):
 ├── docs/                    设计文档
 ├── src/
 │   ├── audio/               引擎与音色合成(纯 TS,无 React)
-│   │   ├── engine.ts  scheduler.ts  instruments.ts  exporter.ts
+│   │   ├── engine.ts  scheduler.ts  scheduler.worker.ts  instruments.ts  exporter.ts
 │   ├── state/               数据模型 + zustand store + localStorage 持久化
 │   │   ├── model.ts  store.ts  persistence.ts
 │   ├── components/          Toolbar / TrackPanel / Grid / Keyboard / Toast / BootOverlay

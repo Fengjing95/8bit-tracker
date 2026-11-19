@@ -5,7 +5,8 @@
  *   方向键移动写入光标(Shift+左右 = ±4 步),Z/Q 行字符键在光标处写入并前进一格,
  *   Backspace/Delete 删除光标处音符,[ / ] 调整写入时值;
  * 鼓轨:Z/X/C/V 试奏 Kick/Snare/Hi-hat/Crash。
- * Space = 播放/停止,Esc = 停止。仅在启动(active)后挂载;keydown 属用户手势。
+ * Space = 播放/停止,Esc = 停止;Ctrl/Cmd+Z 撤销,Ctrl/Cmd+Shift+Z 或 Ctrl+Y 重做。
+ * 仅在启动(active)后挂载;keydown 属用户手势。
  */
 import { useEffect } from 'react'
 import { engine } from '../audio/engine'
@@ -40,6 +41,17 @@ export function useComputerKeys(active: boolean): void {
       }
 
       const st = useStore.getState()
+
+      // Ctrl/Cmd+Z = 撤销,Ctrl/Cmd+Shift+Z / Ctrl+Y = 重做
+      if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyZ' || e.code === 'KeyY')) {
+        e.preventDefault()
+        const isRedo =
+          (e.code === 'KeyZ' && e.shiftKey) || (e.code === 'KeyY' && e.ctrlKey && !e.metaKey)
+        if (isRedo) st.redo()
+        else if (!e.shiftKey) st.undo()
+        return
+      }
+
       if (e.code === 'Space') {
         e.preventDefault()
         if (st.playing) st.stopTransport()

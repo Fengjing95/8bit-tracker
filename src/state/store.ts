@@ -26,6 +26,10 @@ export interface ToastData {
 
 interface AppState {
   project: Project
+  /** 撤销栈(工程快照,上限 HISTORY_LIMIT 条) */
+  past: Project[]
+  /** 重做栈(undo/redo 时对换) */
+  future: Project[]
   selected: number
   playing: boolean
   toast: ToastData | null
@@ -63,6 +67,9 @@ interface AppState {
   loadDemo: () => void
   clearProject: () => void
 
+  undo: () => void
+  redo: () => void
+
   showToast: (msg: string, kind?: 'ok' | 'err') => void
   clearToast: () => void
 
@@ -85,10 +92,23 @@ const patchTrack = (
 const sameCell = (n: Note, step: number, pitch: number): boolean =>
   n.step === step && n.pitch === pitch
 
+// ── 撤销/重做:project 纯 JSON 数据,变更前整份快照 ─────────────
+const HISTORY_LIMIT = 100
+
+const snapshotProject = (p: Project): Project => JSON.parse(JSON.stringify(p)) as Project
+
+/** 变更前把当前工程压入 past(超出上限丢最旧)并清空 future */
+const pushHistory = (st: AppState): Partial<AppState> => ({
+  past: [...st.past, snapshotProject(st.project)].slice(-HISTORY_LIMIT),
+  future: [],
+})
+
 const initialProject: Project = loadStoredProject() ?? createDemoProject()
 
 export const useStore = create<AppState>()((set, get) => ({
   project: initialProject,
+  past: [],
+  future: [],
   selected: 0,
   playing: false,
   toast: null,
@@ -96,15 +116,22 @@ export const useStore = create<AppState>()((set, get) => ({
   insertLen: DEFAULT_NOTE_LEN,
 
   setBpm: (bpm) =>
-    set((st) => ({
-      project: { ...st.project, bpm: Math.min(240, Math.max(40, Math.round(bpm))) },
-    })),
+    set((st) => {
+      const v = Math.min(240, Math.max(40, Math.round(bpm)))
+      if (v === st.project.bpm) return {} // 已在边界,避免空历史条目
+      return {
+        ...pushHistory(st),
+        project: { ...st.project, bpm: v },
+      }
+    }),
 
   setBars: (bars) =>
     set((st) => {
       const b = Math.min(MAX_BARS, Math.max(1, Math.round(bars)))
+      if (b === st.project.bars) return {}
       const sc = stepCountOf(b)
       return {
+        ...pushHistory(st),
         project: {
           ...st.project,
           bars: b,
@@ -133,94 +160,148 @@ export const useStore = create<AppState>()((set, get) => ({
     set((st) => {
       const sc = stepCountOf(st.project.bars)
       const l = Math.max(1, Math.min(len, sc - step))
-      return patchTrack(st, i, (t) => ({
-        ...t,
-        // 单音覆盖:清除本步其他音高的音符后写入
-        notes: [...t.notes.filter((n) => n.step !== step), { step, pitch, len: l }],
-      }))
+      const t0 = st.project.tracks[i]
+      if (!t0) return {}
+      const at = t0.notes.filter((n) => n.step === step)
+      // 内容不变(同音同时值且本步无其他音高)则不进入历史
+      const exact = at.find((n) => n.pitch === pitch)
+      if (exact && exact.len === l && at.length === 1) return {}
+      return {
+        ...pushHistory(st),
+        ...patchTrack(st, i, (t) => ({
+          ...t,
+          // 单音覆盖:清除本步其他音高的音符后写入
+          notes: [...t.notes.filter((n) => n.step !== step), { step, pitch, len: l }],
+        })),
+      }
     }),
 
   setNotePos: (i, fromStep, fromPitch, toStep, toPitch) => {
     let result: { step: number; pitch: number } | null = null
     set((st) => {
       const sc = stepCountOf(st.project.bars)
-      return patchTrack(st, i, (t) => {
-        const note = t.notes.find((n) => n.step === fromStep && n.pitch === fromPitch)
-        if (!note) return t
-        const ts = Math.max(0, Math.min(toStep, Math.max(0, sc - note.len)))
-        const tp = Math.max(PITCH_MIN, Math.min(PITCH_MAX, toPitch))
-        if (ts === fromStep && tp === fromPitch) return t
-        const rest = t.notes.filter((n) => n !== note)
-        if (rest.some((n) => n.step === ts && n.pitch === tp)) return t // 目标被占,原地不动
-        result = { step: ts, pitch: tp }
-        return { ...t, notes: [...rest, { ...note, step: ts, pitch: tp }] }
-      })
+      const note = st.project.tracks[i]?.notes.find(
+        (n) => n.step === fromStep && n.pitch === fromPitch,
+      )
+      if (!note) return {}
+      const ts = Math.max(0, Math.min(toStep, Math.max(0, sc - note.len)))
+      const tp = Math.max(PITCH_MIN, Math.min(PITCH_MAX, toPitch))
+      if (ts === fromStep && tp === fromPitch) return {} // 原地,无变更
+      if (st.project.tracks[i]?.notes.some((n) => n !== note && n.step === ts && n.pitch === tp))
+        return {} // 目标被占,原地不动
+      result = { step: ts, pitch: tp }
+      return {
+        ...pushHistory(st),
+        ...patchTrack(st, i, (t) => {
+          const rest = t.notes.filter((n) => n !== note)
+          return { ...t, notes: [...rest, { ...note, step: ts, pitch: tp }] }
+        }),
+      }
     })
     return result
   },
 
   setVolume: (i, volume) =>
-    set((st) => patchTrack(st, i, (t) => ({ ...t, volume }))),
+    set((st) => {
+      const t0 = st.project.tracks[i]
+      if (!t0 || t0.volume === volume) return {}
+      return { ...pushHistory(st), ...patchTrack(st, i, (t) => ({ ...t, volume })) }
+    }),
 
   toggleMute: (i) =>
-    set((st) => patchTrack(st, i, (t) => ({ ...t, muted: !t.muted }))),
+    set((st) => ({ ...pushHistory(st), ...patchTrack(st, i, (t) => ({ ...t, muted: !t.muted })) })),
 
   toggleSolo: (i) =>
-    set((st) => patchTrack(st, i, (t) => ({ ...t, solo: !t.solo }))),
+    set((st) => ({ ...pushHistory(st), ...patchTrack(st, i, (t) => ({ ...t, solo: !t.solo })) })),
 
   setInstrument: (i, inst) =>
-    set((st) => patchTrack(st, i, (t) => ({ ...t, instrument: inst }))),
+    set((st) => {
+      const t0 = st.project.tracks[i]
+      if (!t0 || t0.instrument === inst) return {}
+      return { ...pushHistory(st), ...patchTrack(st, i, (t) => ({ ...t, instrument: inst })) }
+    }),
 
   addNote: (i, step, pitch) =>
     set((st) => {
+      const t0 = st.project.tracks[i]
+      if (!t0 || t0.notes.some((n) => sameCell(n, step, pitch))) return {}
       const sc = stepCountOf(st.project.bars)
       // 鼠标放置与键盘写入共用 insertLen 时值
       const len = Math.max(1, Math.min(st.insertLen, sc - step))
-      return patchTrack(st, i, (t) => {
-        if (t.notes.some((n) => sameCell(n, step, pitch))) return t
-        const note: Note = { step, pitch, len }
-        return { ...t, notes: [...t.notes, note] }
-      })
+      return {
+        ...pushHistory(st),
+        ...patchTrack(st, i, (t) => ({ ...t, notes: [...t.notes, { step, pitch, len }] })),
+      }
     }),
 
   removeNote: (i, step, pitch) =>
-    set((st) =>
-      patchTrack(st, i, (t) => ({
-        ...t,
-        notes: t.notes.filter((n) => !sameCell(n, step, pitch)),
-      })),
-    ),
+    set((st) => {
+      const t0 = st.project.tracks[i]
+      if (!t0 || !t0.notes.some((n) => sameCell(n, step, pitch))) return {}
+      return {
+        ...pushHistory(st),
+        ...patchTrack(st, i, (t) => ({
+          ...t,
+          notes: t.notes.filter((n) => !sameCell(n, step, pitch)),
+        })),
+      }
+    }),
 
   setNoteLen: (i, step, pitch, len) =>
-    set((st) =>
-      patchTrack(st, i, (t) => ({
-        ...t,
-        notes: t.notes.map((n) =>
-          sameCell(n, step, pitch)
-            ? { ...n, len: Math.max(1, Math.min(len, stepCountOf(st.project.bars) - step)) }
-            : n,
-        ),
-      })),
-    ),
+    set((st) => {
+      const target = st.project.tracks[i]?.notes.find((n) => sameCell(n, step, pitch))
+      const clamped = Math.max(1, Math.min(len, stepCountOf(st.project.bars) - step))
+      if (!target || target.len === clamped) return {}
+      return {
+        ...pushHistory(st),
+        ...patchTrack(st, i, (t) => ({
+          ...t,
+          notes: t.notes.map((n) => (sameCell(n, step, pitch) ? { ...n, len: clamped } : n)),
+        })),
+      }
+    }),
 
   toggleDrum: (i, step, kind) =>
-    set((st) =>
-      patchTrack(st, i, (t) => {
-        const exists = t.notes.some((n) => sameCell(n, step, kind))
-        return {
+    set((st) => {
+      const exists = st.project.tracks[i]?.notes.some((n) => sameCell(n, step, kind)) ?? false
+      return {
+        ...pushHistory(st),
+        ...patchTrack(st, i, (t) => ({
           ...t,
           notes: exists
             ? t.notes.filter((n) => !sameCell(n, step, kind))
             : [...t.notes, { step, pitch: kind, len: 1 }],
-        }
-      }),
-    ),
+        })),
+      }
+    }),
 
-  loadProject: (p) => set({ project: p }),
+  loadProject: (p) => set((st) => ({ ...pushHistory(st), project: p })),
 
-  loadDemo: () => set({ project: createDemoProject() }),
+  loadDemo: () => set((st) => ({ ...pushHistory(st), project: createDemoProject() })),
 
-  clearProject: () => set({ project: createEmptyProject() }),
+  clearProject: () => set((st) => ({ ...pushHistory(st), project: createEmptyProject() })),
+
+  undo: () => {
+    const st = get()
+    const prev = st.past[st.past.length - 1]
+    if (!prev) return
+    set({
+      past: st.past.slice(0, -1),
+      future: [...st.future, snapshotProject(st.project)].slice(-HISTORY_LIMIT),
+      project: prev,
+    })
+  },
+
+  redo: () => {
+    const st = get()
+    const next = st.future[st.future.length - 1]
+    if (!next) return
+    set({
+      past: [...st.past, snapshotProject(st.project)].slice(-HISTORY_LIMIT),
+      future: st.future.slice(0, -1),
+      project: next,
+    })
+  },
 
   showToast: (msg, kind = 'ok') =>
     set({ toast: { msg, kind, seq: Date.now() } }),

@@ -1,6 +1,9 @@
 /**
  * Lookahead 步进调度器(audio 时钟排音频,rAF 按可听时间抛视觉步)。
  * 步数由 getStepCount 动态提供(小节数可调),每步读取,改动即时生效。
+ * 心跳定时器跑在 Web Worker 里(后台标签页主线程定时器被节流至 ≥1s,
+ * Worker 不受影响);Worker 构造失败时降级回主线程 setInterval。
+ * 音频排程始终在主线程 AudioContext 上,用 ctx.currentTime,不受迁移影响。
  * 详见 docs/design-detail.md §2.6。
  */
 
@@ -19,7 +22,8 @@ export class Scheduler {
   playing = false
 
   private ctx: AudioContext | null = null
-  private timer: ReturnType<typeof setInterval> | null = null
+  private worker: Worker | null = null
+  private timer: ReturnType<typeof setInterval> | null = null // 降级用主线程定时器
   private rafId = 0
   private step = 0
   private nextTime = 0
@@ -28,6 +32,21 @@ export class Scheduler {
   private getStepCount: (() => number) | null = null
   private onSchedule: ScheduleStepFn | null = null
   private onVisual: VisualStepFn | null = null
+
+  constructor() {
+    try {
+      // Vite 原生 Worker 写法:构建时作为独立 chunk 打包
+      const w = new Worker(new URL('./scheduler.worker.ts', import.meta.url), {
+        type: 'module',
+      })
+      w.onmessage = (e: MessageEvent): void => {
+        if (e.data === 'tick') this.tick() // playing 已在 tick 内守卫
+      }
+      this.worker = w
+    } catch {
+      this.worker = null // 环境不支持 Worker → 主线程 setInterval 降级
+    }
+  }
 
   start(
     ctx: AudioContext,
@@ -48,7 +67,11 @@ export class Scheduler {
     this.nextTime = ctx.currentTime + 0.08
 
     this.tick()
-    this.timer = setInterval(() => this.tick(), TICK_MS)
+    if (this.worker) {
+      this.worker.postMessage('start')
+    } else {
+      this.timer = setInterval(() => this.tick(), TICK_MS)
+    }
 
     const raf = (): void => {
       if (!this.playing || !this.ctx) return
@@ -65,7 +88,9 @@ export class Scheduler {
   stop(): void {
     if (!this.playing) return
     this.playing = false
-    if (this.timer !== null) {
+    if (this.worker) {
+      this.worker.postMessage('stop')
+    } else if (this.timer !== null) {
       clearInterval(this.timer)
       this.timer = null
     }

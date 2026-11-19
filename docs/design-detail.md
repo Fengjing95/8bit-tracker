@@ -93,21 +93,30 @@ release: exponentialRamp(0.0008, t+dur+60ms);osc.stop(t+dur+90ms)
 | Hi-hat | 白噪声 → 高通 7kHz,gain 0.3 → 0.001(50ms)极短衰减 |
 | Crash | 白噪声(高通 4.5kHz)gain 0.45→0.001(900ms)长衰减 + 4 个非谐波方波(205.3/304.4/369.6/522.7Hz,TR-808 钹电路思路)经高通 4kHz 做金属质感(0.15→0.001,550ms) |
 
-### 2.6 调度器(`scheduler.ts`,lookahead 模式)
+### 2.6 调度器(`scheduler.ts` + `scheduler.worker.ts`,lookahead 模式)
 
 ```
-setInterval 25ms:while (nextTime < ctx.currentTime + 0.12)
-    onSchedule(step, nextTime, stepDur)   // 排音频
+scheduler.worker.ts(Worker 线程):setInterval 25ms → postMessage('tick')
+scheduler.ts(主线程):收到 'tick' → while (nextTime < ctx.currentTime + 0.12)
+    onSchedule(step, nextTime, stepDur)   // 排音频(仍在主线程 AudioContext 上)
     queue.push({step, time: nextTime})
     nextTime += getStepDur()              // BPM 每步实时读取
     step = (step+1) % getStepCount()      // 步数随小节数实时读取
-requestAnimationFrame:queue 中 time ≤ now 的条目 → onVisual(step)  // 排 UI
+requestAnimationFrame(主线程):queue 中 time ≤ now 的条目 → onVisual(step)  // 排 UI
 ```
 
-- 调度用 audio 时钟,不依赖 rAF/定时器精度 ⇒ 稳定不掉拍;UI 高亮按 **audible time** 触发,听视同步;
+- **心跳跑在 Web Worker 里**:后台标签页主线程定时器被节流至 ≥1s,Worker 线程不受节流 ⇒
+  后台播放音频不断拍;协议 `start` / `stop` / `tick`,Worker 在 Scheduler 构造时以
+  Vite 原生写法创建(`new Worker(new URL('./scheduler.worker.ts', import.meta.url), { type: 'module' })`),
+  构建产物为独立 chunk;
+- **降级路径**:Worker 构造失败(环境不支持/CSP)时回退主线程 `setInterval(25ms)`,
+  对外 API(start/stop/playing)签名不变;
+- 音频排程始终在主线程用 `ctx.currentTime`(audio 时钟),不依赖 rAF/定时器精度 ⇒ 稳定不掉拍;
+  UI 高亮按 **audible time** 触发,听视同步;后台时视觉 rAF 暂停属预期,音频不受影响;
 - BPM / 小节数都在调度循环内实时读取,播放中改动即时生效;
-- `start` 可重入保护;`stop` 清定时器/rAF/队列并 `onVisual(-1)` 通知清场;
-- 已知限制:后台标签 setInterval 被节流至 ≥1s,长前瞻音频会出现间隙(设计如此,建议前台使用)。
+- `start` 可重入保护;`stop` 通知 Worker 停心跳(或清主线程定时器)、cancel rAF、清队列并
+  `onVisual(-1)` 通知清场;Worker 实例与 App 同生命周期(单例),不 terminate;
+- Worker 侧消息处理幂等(重复 `start` 不叠加定时器,`stop` 后心跳清空)。
 
 ### 2.7 引擎对外接口(`engine.ts` 单例)
 
@@ -136,16 +145,24 @@ renderWav(): Promise<Blob>               // 委托 exporter,使用当前已同�
 | 字段/动作 | 说明 |
 | --- | --- |
 | `project` | 工程(唯一数据源,不可变更新) |
+| `past / future` | 撤销/重做栈:project 的 JSON 深拷贝快照,上限 100 条(超出丢最旧) |
 | `selected / playing / toast` | 选中轨、传输态镜像、Toast(带 seq 触发) |
 | `setBpm / setBars / select / setVolume / toggleMute / toggleSolo / setInstrument` | 工程字段编辑;setBars 缩小时丢弃范围外音符并钳制长度 |
-| `addNote / removeNote / setNoteLen / toggleDrum` | 网格编辑(len 钳制 1..bars×16−step;drum 为开关) |
+| `addNote / removeNote / setNoteLen / toggleDrum / writeNote / setNotePos` | 网格编辑(len 钳制 1..bars×16−step;drum 为开关;writeNote 单音覆盖本步;setNotePos 被占/越界原地不动) |
 | `loadProject / loadDemo / clearProject` | 导入、示例曲、清空 |
+| `undo / redo` | undo 弹 `past` 恢复并把当前工程压入 `future`;redo 反向;恢复用快照新引用 ⇒ 引擎同步与自动保存自动生效 |
 | `playTransport / stopTransport` | 调 engine 并镜像 playing;失败回滚并 Toast |
+
+**历史快照规则**:除 `select / setCaret / setInsertLen / showToast` 等纯 UI 态外,所有会改
+`project` 的 mutation 在变更前 `JSON.parse(JSON.stringify(project))` 快照压栈并清空 `future`;
+内容实际未变的调用(如边界值钳位后相同、目标格被占、同音同值重写)不入栈,避免空撤销步。
+`caret / insertLen` 不入历史。
 
 ### 4.2 引擎/持久化桥接
 
 - `useEngineSync`:effect 内 `engine.syncProject(初始值)` + `store.subscribe`(project 引用变化才同步),清理函数退订 —— StrictMode 下仅存一份订阅;
 - 自动保存:store 模块级订阅,`project !== prev.project` 时防抖 800ms 写 localStorage(key `8bit-tracker-project-v1`,try/catch 兜底);
+- undo/redo 恢复的 project 是深拷贝快照(必然新引用)⇒ 引擎同步与自动保存走同一通道自动生效,无需额外处理;
 - 启动初值:`loadStoredProject() ?? createDemoProject()`。
 
 ## 5. 网格渲染与交互(`components/Grid.tsx`)
@@ -160,16 +177,25 @@ renderWav(): Promise<Blob>               // 委托 exporter,使用当前已同�
 - 音符块为行内绝对定位元素(`left = GUTTER + step×CW`,`width = len×CW`),`data-step/data-len/data-pitch` 供交互、删除与发声加亮(`.ring`)使用;鼓行复用同一音符块结构(宽 1 格,按鼓件着色);
 - 鼓轨 `DrumRow`:4 行(Kick 红 / Snare 黄 / Hi-hat 青 / Crash 品红),单元格按 `(step, kind)` 开关,颜色区分鼓件。
 
-### 5.2 播放头(绕过 React state)
+### 5.2 播放头(绕过 React state)与自动滚屏
 
 ```
-engine.onStepPlayed(step):
-  wrap.querySelectorAll(`[data-step="${prev}"]`) → 移除 .ph
-  wrap.querySelectorAll(`[data-step="${step}"]`) → 加 .ph(含标尺)
-  wrap.querySelectorAll('[data-note]')           → 区间命中者加 .ring(正在发声更亮)
+engine.onStepPlayed(step):        // 每步回调,直接操作 style/class,零 re-render
+  x = step < 0 ? 0 : GUTTER + step×CW
+  wrap.querySelectorAll('[data-ph]').forEach  → translateX(x);step<0 时 visibility hidden
+  wrap.querySelectorAll('[data-note]').forEach→ 区间命中(step ∈ [a, a+len))加 .ring
+
+自动滚屏(同一回调内,step < 0 即停止态时不干预用户滚动):
+  回绕检测:上一可听步 ≥ 0 且 step 变小 → scroller.scrollLeft = 0(循环回绕归零)
+  右侧余量:x − scrollLeft > clientWidth − 4×CW − GUTTER
+           → scroller.scrollLeft = x − clientWidth + 4×CW + GUTTER(每步直接赋值,无动画)
 ```
 
-每步仅 ~几十次 classList 操作,无 re-render。
+- 播放头覆盖列为每行一个绝对定位 `[data-ph]`(音高行/鼓行/标尺各一),平移替代逐格 class 切换,
+  每步仅 ~29 次 style 写入;发声音符加亮 `.ring` 为每步 ~百次量级 classList 切换;
+- 自动滚屏只在播放回调里触发:非播放状态完全不干预用户滚动;`scrollLeft` 直接赋值,
+  回绕(步号从大值跳 0)时立即滚回开头;后台标签 rAF 暂停时回调不触发,视觉冻结属预期;
+- 上一可听步在回调闭包内局部变量记录(不入 React 状态/ref),effect 清理时随闭包销毁。
 
 ### 5.3 指针交互状态机(pitched,选中模型)
 
@@ -215,11 +241,12 @@ Esc(键盘)                   → 先取消选中;无选中时停止播放
 
 - 播放中的 voice 注册于 `Set<VoiceHandle>`,`stop()` 时统一快速释放;`osc.onended` 移除注册并断开 gain;
 - 试奏句柄按 key 存 `Map`,keyup/失焦释放;
-- 订阅类(effect、store)一律返回退订;定时器/rAF 在 stop/unmount 清除;
+- 订阅类(effect、store)一律返回退订;定时器/rAF 在 stop/unmount 清除;调度心跳 Worker 与 App 同生命周期(模块单例),`stop` 仅停心跳不清线程,降级路径下由主线程 `setInterval` 承担并在 `stop` 清除;
 - `import type` 全量适配 `verbatimModuleSyntax`;不使用 enum/参数属性(`erasableSyntaxOnly`)。
 
 ## 8. 已知限制
 
-- 后台标签页音频调度受浏览器节流影响(前台使用无问题);
+- 后台播放依赖调度心跳 Worker:Worker 不可用降级为主线程定时器时,后台标签页仍会被节流掉拍(前台无差别);
+- 页面被浏览器冻结/丢弃(长时间后台且无声音)时播放仍会暂停,属浏览器行为;
 - 网格音高固定 C3–C5(Bass 实际发音 C2–C4);
 - Safari 使用 `webkitAudioContext/OfflineAudioContext` 前缀兼容,`cancelAndHoldAtTime` 有降级路径。

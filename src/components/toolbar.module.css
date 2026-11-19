@@ -76,12 +76,27 @@
   box-shadow: 1px 1px 0 #000;
 }
 
-.bpmNum {
+.bpmInput {
   font-family: var(--font-px);
   font-size: 12px;
   color: var(--yellow);
-  min-width: 52px;
+  width: 56px;
+  padding: 7px 4px;
   text-align: center;
+  background: #0a0e13;
+  border: 2px solid #04070a;
+  box-shadow: 2px 2px 0 #000;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.bpmInput::-webkit-outer-spin-button,
+.bpmInput::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.bpmInput:focus {
+  outline: 2px solid var(--yellow);
+  outline-offset: -4px;
 }
 
 .barsInput {
@@ -107,10 +122,6 @@
   outline-offset: -4px;
 }
 
-.bpmSlider {
-  width: 130px;
-}
-
 .pbtn {
   font-family: var(--font-px);
   font-size: 8px;
@@ -130,7 +141,7 @@
 }
 .pbtn:disabled {
   opacity: 0.5;
-  cursor: wait;
+  cursor: not-allowed;
 }
 
 .fileInput {

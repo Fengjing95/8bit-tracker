@@ -1,5 +1,5 @@
 /**
- * 顶部传输与文件工具条:播放/停止、BPM、WAV 导出、JSON 存取、示例曲/清空。
+ * 顶部传输与文件工具条:播放/停止、BPM/BARS、撤销/重做、WAV 导出、JSON 存取、示例曲/清空。
  * 音频能力全部通过显式接口调用 engine,Context 不进组件状态。
  */
 import { useRef, useState } from 'react'
@@ -16,6 +16,14 @@ export function Toolbar() {
   const setBpm = useStore((st) => st.setBpm)
   const setBars = useStore((st) => st.setBars)
 
+  // BPM 自由整数 40..240(store 内钳制):− / + 步进,输入框可直接键入
+  const changeBpm = (dir: number): void => {
+    setBpm(bpm + dir)
+  }
+  const commitBpmInput = (v: number): void => {
+    if (Number.isFinite(v)) setBpm(Math.round(v))
+  }
+
   // 小节数自由整数 1..MAX_BARS:− / + 步进,输入框可直接键入
   const changeBars = (dir: number): void => {
     setBars(bars + dir)
@@ -23,6 +31,11 @@ export function Toolbar() {
   const commitBarsInput = (v: number): void => {
     if (Number.isFinite(v)) setBars(Math.round(v))
   }
+
+  const undo = useStore((st) => st.undo)
+  const redo = useStore((st) => st.redo)
+  const canUndo = useStore((st) => st.past.length > 0)
+  const canRedo = useStore((st) => st.future.length > 0)
   const playTransport = useStore((st) => st.playTransport)
   const stopTransport = useStore((st) => st.stopTransport)
   const loadProject = useStore((st) => st.loadProject)
@@ -87,21 +100,21 @@ export function Toolbar() {
 
       <div className={s.group}>
         <span className={s.label}>BPM</span>
-        <button className={s.stepBtn} onClick={() => setBpm(bpm - 1)} aria-label="降 BPM">
+        <button className={s.stepBtn} onClick={() => changeBpm(-1)} aria-label="降 BPM">
           −
         </button>
-        <span className={s.bpmNum}>{String(bpm).padStart(3, '0')}</span>
-        <button className={s.stepBtn} onClick={() => setBpm(bpm + 1)} aria-label="升 BPM">
-          +
-        </button>
         <input
-          className={s.bpmSlider}
-          type="range"
+          className={s.bpmInput}
+          type="number"
           min={40}
           max={240}
           value={bpm}
-          onChange={(e) => setBpm(Number(e.target.value))}
+          onChange={(e) => commitBpmInput(e.target.valueAsNumber)}
+          aria-label="BPM"
         />
+        <button className={s.stepBtn} onClick={() => changeBpm(1)} aria-label="升 BPM">
+          +
+        </button>
       </div>
 
       <div className={s.group}>
@@ -120,6 +133,15 @@ export function Toolbar() {
         />
         <button className={s.stepBtn} onClick={() => changeBars(1)} aria-label="加小节数">
           +
+        </button>
+      </div>
+
+      <div className={s.group}>
+        <button className={s.pbtn} onClick={undo} disabled={!canUndo} aria-label="撤销">
+          ↶ UNDO
+        </button>
+        <button className={s.pbtn} onClick={redo} disabled={!canRedo} aria-label="重做">
+          ↷ REDO
         </button>
       </div>
 

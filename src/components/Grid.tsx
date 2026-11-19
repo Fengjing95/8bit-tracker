@@ -6,7 +6,8 @@
  *   DOM 只随标尺刻度线性增长,行本体是常量;
  * - PitchRow / DrumRow 均 memo;音符按音高分组且未变行保留数组引用 ⇒ 改动只重渲染对应行;
  * - 播放列高亮是高频更新,不经过 React state:订阅 engine.onStepPlayed,
- *   直接平移各行的 [data-ph] 覆盖列(每步 ~29 次 style 写入),零 re-render。
+ *   直接平移各行的 [data-ph] 覆盖列(每步 ~29 次 style 写入),零 re-render;
+ *   同回调内做播放头自动滚屏(视口跟随 + 回绕归零)。
  */
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import type {
@@ -196,6 +197,7 @@ export function Grid() {
   const notesByPitch = useNotesByPitch(track.notes, isDrum ? DRUM_PITCHES : PITCHES)
 
   const wrapRef = useRef<HTMLDivElement | null>(null)
+  const scrollerRef = useRef<HTMLDivElement | null>(null)
   const lanesRef = useRef<HTMLDivElement | null>(null)
   const dragRef = useRef<DragState | null>(null)
 
@@ -318,9 +320,12 @@ export function Grid() {
   }, [])
 
   // ── 播放列高亮:调度器当前步回调 → ref 直移覆盖列(无 React state) ──
+  // 附带自动滚屏:播放头右侧不足 4 格余量时直接设定 scrollLeft(无动画),
+  // 循环回绕(步号从大值跳 0)滚回开头;step < 0(停止)不干预用户滚动。
   useEffect(() => {
     const wrap = wrapRef.current
     if (!wrap) return
+    let lastStep = -1
     const apply = (step: number): void => {
       const x = step < 0 ? 0 : GUTTER + step * CW
       wrap.querySelectorAll<HTMLElement>('[data-ph]').forEach((el) => {
@@ -336,6 +341,19 @@ export function Grid() {
         const len = Number(el.dataset.len)
         el.classList.toggle(s.ring, step >= a && step < a + len)
       })
+      if (step < 0) {
+        lastStep = -1
+        return
+      }
+      const scroller = scrollerRef.current
+      if (scroller) {
+        if (lastStep >= 0 && step < lastStep) {
+          scroller.scrollLeft = 0 // 循环回绕:滚回开头
+        } else if (x - scroller.scrollLeft > scroller.clientWidth - 4 * CW - GUTTER) {
+          scroller.scrollLeft = x - scroller.clientWidth + 4 * CW + GUTTER
+        }
+      }
+      lastStep = step
     }
     return engine.onStepPlayed(apply)
   }, [])
@@ -361,7 +379,7 @@ export function Grid() {
 
   return (
     <div className={s.wrap} ref={wrapRef}>
-      <div className={s.scroller}>
+      <div className={s.scroller} ref={scrollerRef}>
         <div className={s.ruler}>
           <div className={s.corner} data-gutter>
             STEP
