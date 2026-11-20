@@ -81,6 +81,9 @@
   min-width: 100%;
   user-select: none;
   -webkit-user-select: none;
+  /* 触控分级:空格单指滑动 = 滚动网格(tap 由 Grid.js 判定);
+     音符块 .note 用 touch-action:none 覆盖,保留直接拖拽 */
+  touch-action: pan-x pan-y;
 }
 
 .rowLabel {

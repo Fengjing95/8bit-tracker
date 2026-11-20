@@ -24,6 +24,12 @@ body,
   height: 100%;
 }
 
+/* 移动端:去掉点按高亮(像素风自绘反馈),禁 iOS 点按放大 */
+html {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
 body {
   margin: 0;
   background: var(--bg);

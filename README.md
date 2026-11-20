@@ -44,6 +44,18 @@ npx tsc --noEmit -p tsconfig.app.json
 | `Z / X / C / V`(鼓轨选中时) | 试奏 Kick / Snare / Hi-hat / Crash |
 | `SPACE` | 播放 / 停止 |
 
+## 移动端
+
+单代码库响应式,平板 / 手机 / 桌面同一页面:
+
+- **≤1024px**:轨道面板变为左侧抽屉(默认收起),工具栏 **☰** 开合、点背板关闭;网格占满全宽;
+- **≤640px**:工具栏紧凑单行(标题缩写 8BIT + ▶/■ + BPM/BARS 输入框),文件操作与撤销/重做收进 **⋯** 弹出菜单;
+- **触控手势**:网格空格**单指滑动 = 滚动**,**tap = 放置**(鼓格同理开关);点音符直接拖动移位 / 右缘改长,多指只跟踪第一根;
+- **WRITE 模式**:虚拟键盘上方开关,开启后点琴键/鼓垫即写入光标处并前进一格(品红描边提示),配合方向键定位可在手机上完成 tracker 式输入;
+- **键盘区可收起**:给网格让出屏幕空间;
+- **适配细节**:100dvh 动态视口、iPhone 刘海/横条安全区(env(safe-area-inset-*))、无点按高亮;
+- **PWA**:manifest + 图标齐全,浏览器"安装到主屏"后以 standalone 打开(theme 背景同色无白边)。
+
 ## 架构
 
 - `src/audio/` — 音频引擎(纯 TS 单例,与 React 完全解耦):`engine`(Context 生命周期/母线/试奏)、`scheduler` + `scheduler.worker`(lookahead 调度 + 视觉队列,心跳定时器跑在 Web Worker 里,后台标签页不掉拍;Worker 不可用时降级主线程定时器)、`instruments`(脉冲波 PeriodicWave、三角 bass、噪声鼓组)、`exporter`(OfflineAudioContext 渲染 + WAV 编码)
@@ -62,12 +74,15 @@ npx tsc --noEmit -p tsconfig.app.json
 - BPM 输入框:键入 768 钳到 240,清空不崩溃不误跳
 - 调度心跳来自 Web Worker(页面加载 `scheduler.worker.ts` 独立 chunk,start/stop 消息协议实测);播放中面板遮挡 ≥10s,返回后播放头无大步跳跃、步进均匀连续
 - 工程 JSON 导出→导入 round-trip 数据一致(sanitize 幂等,两轮验证)
+- 移动端实测(375/390/768/1280 视口):布局不破、无整页横滚;抽屉/⋯菜单/键盘收合可用;触控 tap 放置、滑动零误放、音符拖拽、鼓格开关、WRITE 写入全过;桌面鼠标行为回归一致;manifest 与图标可访问、console 无报错
 - 导出 WAV 可解码、非静音(16bit/44.1kHz/双声道,峰值 0.7+)
 - 鼓组 4 件(Kick / Snare / Hi-hat / Crash),小节数 1–64 任意整数(缩小自动丢弃范围外音符,旧存档兼容)
 
 ## 已知限制
 
 - 后台播放依赖调度心跳 Worker;Worker 被环境禁用而降级为主线程定时器时,后台标签页仍会被节流掉拍(前台无差别);
+- ≤640px 琴键区超宽时容器内横向滑动(黑键定位为 JS 常量,不在窄屏改键宽;白键禁 flex 收缩保证黑白键对齐);320px 极窄屏工具栏两行;
+- iOS 真机 WebAudio 行为(切换后台挂起恢复)已按 visibilitychange 处理,但未在真机回归;
 - 小节数上限 64:WAV 导出需整曲一次性离线渲染,内存与文件体积随长度线性增长;
 - 网格音高固定 C3–C5(Triangle Bass 写 C3 区、实际发音低八度 C2 区);
 - 需要 Chrome / Edge / Firefox / Safari 等现代浏览器(支持 WebAudio、Pointer Events 与 Web Workers)。

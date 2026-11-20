@@ -37,12 +37,21 @@ interface AppState {
   caret: { step: number; pitch: number } | null
   /** 键盘写入时值(步数),由 [ / ] 调整 */
   insertLen: number
+  /** ≤1024px 轨道抽屉开合(桌面恒显侧栏,此态无效) */
+  panelOpen: boolean
+  /** 底部虚拟键盘收合(收起给网格让空间) */
+  keyboardOpen: boolean
+  /** 虚拟键盘写入模式:关 = 试奏,开 = 点击写入光标处并前进 */
+  writeMode: boolean
 
   setBpm: (bpm: number) => void
   setBars: (bars: number) => void
   select: (i: number) => void
   setCaret: (c: { step: number; pitch: number } | null) => void
   setInsertLen: (n: number) => void
+  setPanelOpen: (v: boolean) => void
+  setKeyboardOpen: (v: boolean) => void
+  setWriteMode: (v: boolean) => void
   /** 键盘写入:单音覆盖 step 列后插入 */
   writeNote: (i: number, step: number, pitch: number, len: number) => void
   /** 拖动音符:整体移动(位置 + 音高),目标被占则原地不动;返回实际落点(被阻挡时为 null) */
@@ -114,6 +123,9 @@ export const useStore = create<AppState>()((set, get) => ({
   toast: null,
   caret: null,
   insertLen: DEFAULT_NOTE_LEN,
+  panelOpen: false,
+  keyboardOpen: true,
+  writeMode: false,
 
   setBpm: (bpm) =>
     set((st) => {
@@ -155,6 +167,10 @@ export const useStore = create<AppState>()((set, get) => ({
   setCaret: (c) => set({ caret: c }), // c 可为 null(Esc 取消选中)
 
   setInsertLen: (n) => set({ insertLen: Math.max(1, Math.min(32, Math.round(n))) }),
+
+  setPanelOpen: (v) => set({ panelOpen: v }),
+  setKeyboardOpen: (v) => set({ keyboardOpen: v }),
+  setWriteMode: (v) => set({ writeMode: v }),
 
   writeNote: (i, step, pitch, len) =>
     set((st) => {

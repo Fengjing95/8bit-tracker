@@ -1,10 +1,64 @@
 .wrap {
   flex: 0 0 auto;
   padding: 10px 16px 12px;
+  /* iPhone 横条/刘海安全区 */
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
   background: var(--panel);
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.headRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.headBtns {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+.kbtn {
+  font-family: var(--font-px);
+  font-size: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  background: var(--panel2);
+  color: var(--dim);
+  border: 2px solid #04070a;
+  box-shadow: 2px 2px 0 #000;
+}
+.kbtn:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 #000;
+}
+
+/* WRITE 开启态:品红实底 */
+.writeOn {
+  background: var(--magenta);
+  color: #2b0425;
+}
+
+/* 写入模式:琴键/鼓垫品红描边区分 */
+.write .white {
+  border-color: var(--magenta);
+}
+.write .white:first-child {
+  border-left-color: var(--magenta);
+}
+.write .black {
+  border-color: var(--magenta);
+  border-top: none;
+}
+.write .pad {
+  box-shadow:
+    3px 3px 0 #000,
+    inset 0 0 0 2px var(--magenta);
 }
 
 .label {
@@ -28,6 +82,7 @@
 }
 
 .white {
+  flex: 0 0 34px; /* 禁收缩:黑键 left 是按 34px 网格内联定位的,窄屏挤压会导致错位 */
   width: 34px;
   height: 88px;
   box-sizing: border-box;
@@ -146,4 +201,18 @@
 .padKey {
   font-size: 8px;
   color: var(--dim);
+}
+
+/* ── 断点:≤640px 手机 ──
+   琴键排 15×34px ≈ 510px 超出窄屏:容器内横滑(黑键定位由 JS 常量算出,不改键宽);
+   鼓垫 2×2 换行(黑键无定位耦合,直接换行安全)。 */
+@media (max-width: 640px) {
+  .piano {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .pads {
+    flex-wrap: wrap;
+  }
 }

@@ -10,6 +10,39 @@
   gap: 10px;
 }
 
+/* ── ≤1024px:固定侧栏 → 可开合抽屉(默认收起,Toolbar ☰ 切换) ── */
+.backdrop {
+  display: none;
+}
+
+@media (max-width: 1024px) {
+  .panel {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 60;
+    flex: 0 0 auto;
+    width: min(300px, 86vw);
+    max-width: 86vw;
+    transform: translateX(-104%);
+    transition: transform 0.16s ease-out;
+  }
+
+  .open {
+    transform: translateX(0);
+    box-shadow: 6px 0 0 rgba(0, 0, 0, 0.55);
+  }
+
+  .backdrop.open {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(4, 7, 10, 0.55);
+  }
+}
+
 .title {
   font-family: var(--font-px);
   font-size: 10px;

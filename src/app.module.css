@@ -1,4 +1,4 @@
-/* 应用骨架:100vh 三段布局 */
+/* 应用骨架:100dvh(无支持时回退 100vh)三段布局 */
 .app {
   height: 100vh;
   display: flex;
@@ -6,6 +6,12 @@
   background: var(--bg);
   color: var(--text);
   overflow: hidden;
+}
+
+@supports (height: 100dvh) {
+  .app {
+    height: 100dvh;
+  }
 }
 
 .main {

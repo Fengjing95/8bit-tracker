@@ -147,6 +147,7 @@ renderWav(): Promise<Blob>               // 委托 exporter,使用当前已同�
 | `project` | 工程(唯一数据源,不可变更新) |
 | `past / future` | 撤销/重做栈:project 的 JSON 深拷贝快照,上限 100 条(超出丢最旧) |
 | `selected / playing / toast` | 选中轨、传输态镜像、Toast(带 seq 触发) |
+| `panelOpen / keyboardOpen / writeMode` | 移动端 UI 态:轨道抽屉开合、键盘收合、虚拟键盘写入模式(不持久化、不入历史,见 §9) |
 | `setBpm / setBars / select / setVolume / toggleMute / toggleSolo / setInstrument` | 工程字段编辑;setBars 缩小时丢弃范围外音符并钳制长度 |
 | `addNote / removeNote / setNoteLen / toggleDrum / writeNote / setNotePos` | 网格编辑(len 钳制 1..bars×16−step;drum 为开关;writeNote 单音覆盖本步;setNotePos 被占/越界原地不动) |
 | `loadProject / loadDemo / clearProject` | 导入、示例曲、清空 |
@@ -200,7 +201,7 @@ engine.onStepPlayed(step):        // 每步回调,直接操作 style/class,零 r
 ### 5.3 指针交互状态机(pitched,选中模型)
 
 ```
-pointerdown 空格              → addNote(len = insertLen)→ 选中该音符
+pointerdown 空格              → addNote(len = insertLen)→ 选中该音符(mouse/pen 即刻;touch 见下)
 pointerdown 音符              → 选中(不删除):光标吸附到音符,实线黄框包裹
   ├ 右缘 10px 拖动            → resize:横向改时值
   └ 其余区域拖动              → move:移位(步进 + 音高),选中跟随(setNotePos 返回实际落点)
@@ -208,6 +209,11 @@ pointerup                     → 无删除语义(防误操作)
 contextmenu                   → preventDefault;命中音符则删除(显式快捷删除)
 Esc(键盘)                   → 先取消选中;无选中时停止播放
 ```
+
+触控分级(`pointerType`):mouse/pen 保持上表不变;touch 时空格/鼓格不再 pointerdown
+立即放置,转入 tap 待定态,抬起按 位移<8px 且 <600ms 判定后放置/开关,滑动由
+`touch-action: pan-x pan-y` 交给浏览器滚动(pointercancel 作废待定 tap);音符块
+`touch-action: none` 保留直接拖拽,多指只跟踪起始 pointerId(详见 §9.2)。
 
 选中与插入统一由光标承载:落在音符上为选中态(实线框),落在空格为插入态(虚线 ghost,宽度 = insertLen)。
 命中计算基于常量几何(rect + CW/GUTTER/RH);move 用 lanes 容器几何而非 DOM 命中,并以"当前位置"为源持续更新(否则首格之后源查找落空)。
@@ -250,3 +256,51 @@ Esc(键盘)                   → 先取消选中;无选中时停止播放
 - 页面被浏览器冻结/丢弃(长时间后台且无声音)时播放仍会暂停,属浏览器行为;
 - 网格音高固定 C3–C5(Bass 实际发音 C2–C4);
 - Safari 使用 `webkitAudioContext/OfflineAudioContext` 前缀兼容,`cancelAndHoldAtTime` 有降级路径。
+
+## 9. 移动端适配(响应式 + 触控 + PWA)
+
+单代码库 CSS 断点响应式,无"移动版页面"。断点:**≥1025px 现状 / ≤1024px 平板 / ≤640px 手机**。
+
+### 9.1 布局响应式
+
+| 断点 | 变化 |
+| --- | --- |
+| ≤1024px | TrackPanel 固定侧栏 → **抽屉**(默认收起):`position:fixed` 左侧 `min(300px, 86vw)`,`translateX(-104%)` 收起 / `.open` 滑出,半透明背板点击关闭;Toolbar 出现 ☰ 像素按钮切换(store `panelOpen`);Grid 占满剩余宽度 |
+| ≤640px | Toolbar 紧凑单行:标题缩写 `8BIT`(两 span 断点切换)、▶/■、BPM/BARS 输入框、☰、⋯;`BPM/BARS` 文字标签、LOOP 徽标、UNDO/REDO、文件组隐藏,文件操作 + 撤销/重做收进 **⋯ 弹出菜单**(外点关闭,条目 disabled 态同步);group gap/按钮/输入框尺寸再收一档,375px 宽验证单行,320px 优雅两行 |
+| 全部 | 键盘区 **收起/展开按钮**(store `keyboardOpen`,默认展开):收起仅留标题行,给网格让出高度;≤640px 琴键容器 `overflow-x:auto`(黑键 left 是按 34px 网格内联定位的 JS 常量,不改键宽;白键 `flex: 0 0 34px` 禁 flex 收缩,否则白键被压窄而黑键不动 → 错位)、鼓垫 2×2 换行 |
+
+视口与安全区:`.app` 高度 `100vh`,`@supports (height: 100dvh)` 升级为 `100dvh`(iOS 动态地址栏);
+Toolbar/Keyboard 内边距用 `max(原值, env(safe-area-inset-*))`;全局 `html { -webkit-tap-highlight-color: transparent; touch-action: manipulation }`(像素风自绘反馈,禁双击缩放)。
+
+### 9.2 网格触控手势分级(Grid.tsx)
+
+- **mouse/pen**:完全保持 §5.3 现状(pointerdown 立即放置/启动拖拽);
+- **touch 空格/鼓格**:pointerdown 只记录待定 tap `{pointerId, rowEl, x0, y0, t0}`,不放置;
+  行容器 `touch-action: pan-x pan-y` ⇒ 单指滑动 = 浏览器滚动网格,滚动接管触发
+  `pointercancel` 作废待定 tap;抬起按 **位移 <8px 且时长 <600ms** 判定为 tap 才
+  放置(pitched:`addNote` + caret 吸附;鼓行:`toggleDrum`);
+- **touch 音符块/右缘把手**:保持 pointerdown 直接启动 move/resize 拖拽(音符块
+  `touch-action: none` 不被滚动打断);DragState/TapState 记录 `pointerId`,
+  move/up/cancel 全部按 id 过滤 ⇒ **多指只跟踪第一根**,拖拽会话期间其余手指的
+  空格 tap 请求被忽略;
+- tap 判定监听为 Grid effect 内常驻 window `pointerup/pointercancel`(无待定 tap
+  立即返回),effect 清理退订,StrictMode 安全。
+
+### 9.3 虚拟键盘 WRITE 模式(补齐移动端 tracker 写入流)
+
+- 键盘标题行右侧 **WRITE toggle**(store `writeMode`,不持久化):关 = 现状试奏;
+  开 = 点琴键在光标处写入并前进一格——音轨复用 `writeNote + setCaret`
+  (光标为空先设 `{step:0, pitch:60}`,len 钳 `insertLen`),160ms 短促试听,
+  与 `useComputerKeys` 写入流一致;鼓轨点垫 = 光标步**无同鼓件才写入**(只加不删)
+  并前进 + `previewDrum` 试奏;
+- 开启时琴键/鼓垫品红描边、WRITE 按钮品红实底;键盘区另有收合按钮(§9.1)。
+
+### 9.4 音频生命周期与 PWA
+
+- **`useVisibilityResume`**:监听 `visibilitychange`,回到 visible 且 `playing` 时
+  幂等调用 `engine.ensure()`(iOS 切后台可能挂起 AudioContext;调度心跳在 Worker
+  内持续,恢复后音频接续,无需重启传输);挂载于 App,effect 清理退订;
+- **PWA**:`viewport-fit=cover` + `theme-color` + `manifest.webmanifest`
+  (name/short_name、`display: standalone`、theme/background `#0b0d10`、图标
+  favicon.svg + icon-192.png + icon-512.png[purpose 含 maskable],无 Service Worker、
+  不强制离线缓存);iOS 另有 `apple-mobile-web-app-*` meta 与 apple-touch-icon。

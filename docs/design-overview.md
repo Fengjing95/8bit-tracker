@@ -15,6 +15,7 @@
 | 持久化 | 改动防抖 800ms 自动存 localStorage;工程 JSON 导出/导入 |
 | 导出 | OfflineAudioContext 离线渲染整曲(循环 2 遍 + 尾音),16bit PCM WAV 下载 |
 | 示例曲 | 内置 TETRIS A 主题《Korobeiniki》8 小节改编(公有领域民歌;旋律 + 和声 + Bass + 鼓),打开即有内容 |
+| 移动端 | 单代码库响应式(≤1024px 轨道抽屉 / ≤640px 紧凑工具栏 + ⋯ 菜单);网格触控分级(滑动滚动、tap 放置、音符直接拖拽);虚拟键盘 WRITE 写入模式;100dvh + 安全区;PWA manifest 可安装主屏 |
 
 ## 2. 技术选型
 
@@ -68,7 +69,7 @@
 | `src/audio/instruments.ts` | 音色合成:PeriodicWave 缓存、噪声缓冲、Voice 包络、鼓组、母线、混音计算 | model |
 | `src/audio/exporter.ts` | 离线渲染(2 遍循环 + 尾音)与 WAV 编码 | instruments / model |
 | `src/state/model.ts` | 数据模型 + 常量 + `sanitizeProject` 校验 | — |
-| `src/state/store.ts` | zustand store(工程/选择/播放态/Toast)+ 编辑 action + 自动保存订阅 | model / engine / persistence |
+| `src/state/store.ts` | zustand store(工程/选择/播放态/Toast + 移动端 UI 态)+ 编辑/撤销重做 action + 自动保存订阅 | model / engine / persistence |
 | `src/state/persistence.ts` | localStorage 读写 | model |
 | `src/song-demo.ts` | 内置示例曲与空工程 | model |
 | `src/components/*` | Toolbar / TrackPanel / Grid / Keyboard / Toast / BootOverlay | store / engine |
@@ -142,7 +143,7 @@ Toolbar → engine.renderWav → renderProjectToWav(project):
 │   ├── state/               数据模型 + zustand store + localStorage 持久化
 │   │   ├── model.ts  store.ts  persistence.ts
 │   ├── components/          Toolbar / TrackPanel / Grid / Keyboard / Toast / BootOverlay
-│   ├── hooks/               useEngineSync / useComputerKeys
+│   ├── hooks/               useEngineSync / useComputerKeys / useVisibilityResume
 │   ├── lib/                 keys.ts(键位)/ download.ts
 │   ├── song-demo.ts         内置示例曲
 │   ├── App.tsx  main.tsx  index.css

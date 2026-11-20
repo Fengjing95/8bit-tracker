@@ -20,80 +20,89 @@ export function TrackPanel() {
   const toggleMute = useStore((st) => st.toggleMute)
   const toggleSolo = useStore((st) => st.toggleSolo)
   const setInstrument = useStore((st) => st.setInstrument)
+  const panelOpen = useStore((st) => st.panelOpen)
+  const setPanelOpen = useStore((st) => st.setPanelOpen)
 
   return (
-    <aside className={s.panel}>
-      <div className={s.title}>TRACKS</div>
-      {tracks.map((t, i) => (
-        <div
-          key={i}
-          className={`${s.track} ${i === selected ? s.sel : ''}`}
-          onClick={() => select(i)}
-        >
-          <div className={s.head}>
-            <span className={s.dot} style={{ background: TRACK_COLORS[i] }} />
-            <span className={s.name}>{t.name}</span>
-            <span className={s.inst}>{INSTRUMENT_META[t.instrument].label}</span>
-          </div>
-
-          {t.instrument !== 'triangle' && t.instrument !== 'noise' && (
-            <div className={s.duty}>
-              {PULSE_IDS.map((id: InstrumentId) => (
-                <button
-                  key={id}
-                  className={`${s.dutyBtn} ${t.instrument === id ? s.dutyOn : ''}`}
-                  onClick={(e) => {
-                    e.stopPropagation() // 控件本身不触发选中
-                    setInstrument(i, id)
-                  }}
-                >
-                  {DUTY_LABEL[id]}
-                </button>
-              ))}
+    <>
+      {/* ≤1024px 抽屉背板:点击关闭(桌面 display:none) */}
+      <div
+        className={`${s.backdrop} ${panelOpen ? s.open : ''}`}
+        onClick={() => setPanelOpen(false)}
+      />
+      <aside className={`${s.panel} ${panelOpen ? s.open : ''}`}>
+        <div className={s.title}>TRACKS</div>
+        {tracks.map((t, i) => (
+          <div
+            key={i}
+            className={`${s.track} ${i === selected ? s.sel : ''}`}
+            onClick={() => select(i)}
+          >
+            <div className={s.head}>
+              <span className={s.dot} style={{ background: TRACK_COLORS[i] }} />
+              <span className={s.name}>{t.name}</span>
+              <span className={s.inst}>{INSTRUMENT_META[t.instrument].label}</span>
             </div>
-          )}
 
-          <div className={s.vol}>
-            <span className={s.volLabel}>VOL</span>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={t.volume}
-              onClick={(e) => e.stopPropagation()}
-              onPointerDown={(e) => e.stopPropagation()}
-              onChange={(e) => setVolume(i, Number(e.target.value))}
-            />
-            <span className={s.volVal}>{String(t.volume).padStart(3, '0')}</span>
-          </div>
+            {t.instrument !== 'triangle' && t.instrument !== 'noise' && (
+              <div className={s.duty}>
+                {PULSE_IDS.map((id: InstrumentId) => (
+                  <button
+                    key={id}
+                    className={`${s.dutyBtn} ${t.instrument === id ? s.dutyOn : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation() // 控件本身不触发选中
+                      setInstrument(i, id)
+                    }}
+                  >
+                    {DUTY_LABEL[id]}
+                  </button>
+                ))}
+              </div>
+            )}
 
-          <div className={s.switches}>
-            <button
-              className={`${s.sw} ${t.muted ? s.muteOn : ''}`}
-              onClick={(e) => {
-                e.stopPropagation() // 控件本身不触发选中
-                toggleMute(i)
-              }}
-              title="静音"
-            >
-              M
-            </button>
-            <button
-              className={`${s.sw} ${t.solo ? s.soloOn : ''}`}
-              onClick={(e) => {
-                e.stopPropagation() // 控件本身不触发选中
-                toggleSolo(i)
-              }}
-              title="独奏"
-            >
-              S
-            </button>
+            <div className={s.vol}>
+              <span className={s.volLabel}>VOL</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={t.volume}
+                onClick={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                onChange={(e) => setVolume(i, Number(e.target.value))}
+              />
+              <span className={s.volVal}>{String(t.volume).padStart(3, '0')}</span>
+            </div>
+
+            <div className={s.switches}>
+              <button
+                className={`${s.sw} ${t.muted ? s.muteOn : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation() // 控件本身不触发选中
+                  toggleMute(i)
+                }}
+                title="静音"
+              >
+                M
+              </button>
+              <button
+                className={`${s.sw} ${t.solo ? s.soloOn : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation() // 控件本身不触发选中
+                  toggleSolo(i)
+                }}
+                title="独奏"
+              >
+                S
+              </button>
+            </div>
           </div>
+        ))}
+        <div className={s.hint}>
+          点击选中轨道 · M 静音 / S 独奏 · Pulse 轨可切换占空比音色
         </div>
-      ))}
-      <div className={s.hint}>
-        点击选中轨道 · M 静音 / S 独奏 · Pulse 轨可切换占空比音色
-      </div>
-    </aside>
+      </aside>
+    </>
   )
 }

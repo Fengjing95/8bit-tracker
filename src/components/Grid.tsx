@@ -7,7 +7,10 @@
  * - PitchRow / DrumRow 均 memo;音符按音高分组且未变行保留数组引用 ⇒ 改动只重渲染对应行;
  * - 播放列高亮是高频更新,不经过 React state:订阅 engine.onStepPlayed,
  *   直接平移各行的 [data-ph] 覆盖列(每步 ~29 次 style 写入),零 re-render;
- *   同回调内做播放头自动滚屏(视口跟随 + 回绕归零)。
+ *   同回调内做播放头自动滚屏(视口跟随 + 回绕归零);
+ * - 触控手势分级:pointerType 为 mouse/pen 保持指针行为;touch 的空格/鼓格
+ *   走 tap 语义(位移 <8px 且 <600ms 才放置/开关),滑动由 touch-action
+ *   pan-x pan-y 交给浏览器滚动;音符块 touch-action:none 保留直接拖拽,多指只跟踪第一根。
  */
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import type {
@@ -60,6 +63,20 @@ interface DragState {
   curPitch: number
   origLen: number
   rowEl: HTMLElement
+  /** 多指触控时只跟踪起始指针 */
+  pointerId: number
+}
+
+/** 触控空格 tap:指针抬起时按位移/时长判定,通过才放置(空格滑动 = 滚动网格) */
+interface TapState {
+  drum: boolean
+  /** pitched = 音高;drum 行 = 鼓件编号 */
+  pitch: number
+  rowEl: HTMLElement
+  pointerId: number
+  x0: number
+  y0: number
+  t0: number
 }
 
 /** 行内音符按音高分组;内容未变的行保留旧引用 ⇒ memo 行跳过重渲染 */
@@ -200,11 +217,46 @@ export function Grid() {
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const lanesRef = useRef<HTMLDivElement | null>(null)
   const dragRef = useRef<DragState | null>(null)
+  const tapRef = useRef<TapState | null>(null)
+
+  // ── 触控 tap 判定(窗口级常驻监听,无待定 tap 时立即返回) ──
+  // 抬起时:位移 <8px 且时长 <600ms 才算 tap 放置/开关;滚动接管会触发
+  // pointercancel(行容器 touch-action: pan-x pan-y),待定 tap 直接作废。
+  useEffect(() => {
+    const onUp = (e: PointerEvent): void => {
+      const tap = tapRef.current
+      if (!tap || e.pointerId !== tap.pointerId) return
+      tapRef.current = null
+      const dt = performance.now() - tap.t0
+      const dist = Math.hypot(e.clientX - tap.x0, e.clientY - tap.y0)
+      if (dist >= 8 || dt >= 600) return
+      const st = useStore.getState()
+      const sc = st.project.bars * BAR_STEPS
+      const step = stepFromRow(tap.rowEl, e.clientX, sc)
+      if (tap.drum) {
+        st.toggleDrum(st.selected, step, tap.pitch)
+      } else {
+        st.addNote(st.selected, step, tap.pitch)
+        st.setCaret({ step, pitch: tap.pitch }) // 放置后光标吸附该音符
+      }
+    }
+    const onCancel = (e: PointerEvent): void => {
+      const tap = tapRef.current
+      if (tap && e.pointerId === tap.pointerId) tapRef.current = null
+    }
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onCancel)
+    return () => {
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onCancel)
+    }
+  }, [])
 
   // ── 拖拽:右缘改时值 / 拖动音符移位(窗口级监听,出界仍有效) ──
   const onDragMove = useCallback((e: PointerEvent): void => {
     const d = dragRef.current
     if (!d) return
+    if (e.pointerId !== d.pointerId) return // 多指触控只跟踪起始指针
     const st = useStore.getState()
     const sc = st.project.bars * BAR_STEPS
     if (d.mode === 'resize') {
@@ -267,6 +319,8 @@ export function Grid() {
       const st = useStore.getState()
       const sc = st.project.bars * BAR_STEPS
       if (noteEl) {
+        // 触控多指:已有拖拽/待定 tap 会话时只跟踪第一根
+        if (e.pointerType === 'touch' && (dragRef.current || tapRef.current)) return
         // 命中音符:右缘 10px 为改时值把手,其余区域为整体拖动;点击 = 选中
         const rect = noteEl.getBoundingClientRect()
         const mode: DragState['mode'] = e.clientX >= rect.right - 10 ? 'resize' : 'move'
@@ -280,7 +334,21 @@ export function Grid() {
           curPitch: pitch,
           origLen: Number(noteEl.dataset.len),
           rowEl,
+          pointerId: e.pointerId,
         }
+      } else if (e.pointerType === 'touch') {
+        // 触控空格:不立即放置,等抬起按 tap 语义判定(滑动 = 滚动网格)
+        if (dragRef.current || tapRef.current) return
+        tapRef.current = {
+          drum: false,
+          pitch,
+          rowEl,
+          pointerId: e.pointerId,
+          x0: e.clientX,
+          y0: e.clientY,
+          t0: performance.now(),
+        }
+        return
       } else {
         const step = stepFromRow(rowEl, e.clientX, sc)
         st.addNote(st.selected, step, pitch)
@@ -293,6 +361,7 @@ export function Grid() {
           curPitch: pitch,
           origLen: Math.max(1, Math.min(st.insertLen, sc - step)),
           rowEl,
+          pointerId: e.pointerId,
         }
       }
       beginDrag()
@@ -304,6 +373,20 @@ export function Grid() {
     (e: ReactPointerEvent<HTMLElement>, kind: number): void => {
       if (e.button !== 0) return
       if ((e.target as HTMLElement).closest('[data-gutter]')) return
+      if (e.pointerType === 'touch') {
+        // 触控鼓行空格:tap 开关(滑动 = 滚动),不立即切换
+        if (dragRef.current || tapRef.current) return
+        tapRef.current = {
+          drum: true,
+          pitch: kind,
+          rowEl: e.currentTarget,
+          pointerId: e.pointerId,
+          x0: e.clientX,
+          y0: e.clientY,
+          t0: performance.now(),
+        }
+        return
+      }
       const st = useStore.getState()
       const step = stepFromRow(e.currentTarget, e.clientX, st.project.bars * BAR_STEPS)
       st.toggleDrum(st.selected, step, kind)

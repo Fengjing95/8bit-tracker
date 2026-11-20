@@ -1,8 +1,9 @@
 /**
  * 顶部传输与文件工具条:播放/停止、BPM/BARS、撤销/重做、WAV 导出、JSON 存取、示例曲/清空。
+ * 响应式:☰ 仅 ≤1024px 显示(轨道抽屉开关);≤640px 文件操作与撤销/重做收进 ⋯ 弹出菜单。
  * 音频能力全部通过显式接口调用 engine,Context 不进组件状态。
  */
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { engine } from '../audio/engine'
 import { downloadBlob } from '../lib/download'
 import { MAX_BARS, sanitizeProject } from '../state/model'
@@ -36,6 +37,10 @@ export function Toolbar() {
   const redo = useStore((st) => st.redo)
   const canUndo = useStore((st) => st.past.length > 0)
   const canRedo = useStore((st) => st.future.length > 0)
+
+  const panelOpen = useStore((st) => st.panelOpen)
+  const setPanelOpen = useStore((st) => st.setPanelOpen)
+
   const playTransport = useStore((st) => st.playTransport)
   const stopTransport = useStore((st) => st.stopTransport)
   const loadProject = useStore((st) => st.loadProject)
@@ -43,7 +48,19 @@ export function Toolbar() {
   const clearProject = useStore((st) => st.clearProject)
   const showToast = useStore((st) => st.showToast)
   const [rendering, setRendering] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const moreRef = useRef<HTMLDivElement | null>(null)
+
+  // ⋯ 菜单外点关闭(仅打开时挂监听,effect 清理退订,StrictMode 安全)
+  useEffect(() => {
+    if (!menuOpen) return
+    const close = (e: PointerEvent): void => {
+      if (!moreRef.current?.contains(e.target as Node)) setMenuOpen(false)
+    }
+    window.addEventListener('pointerdown', close)
+    return () => window.removeEventListener('pointerdown', close)
+  }, [menuOpen])
 
   const exportWav = (): void => {
     setRendering(true)
@@ -84,9 +101,26 @@ export function Toolbar() {
       })
   }
 
+  /** ⋯ 菜单项:执行动作并收起菜单 */
+  const menuAction = (fn: () => void): void => {
+    setMenuOpen(false)
+    fn()
+  }
+
   return (
     <header className={s.bar}>
-      <h1 className={s.title}>8-BIT TRACKER</h1>
+      <button
+        className={s.menuBtn}
+        onClick={() => setPanelOpen(!panelOpen)}
+        aria-label="轨道面板"
+      >
+        ☰
+      </button>
+
+      <h1 className={s.title}>
+        <span className={s.titleFull}>8-BIT TRACKER</span>
+        <span className={s.titleShort}>8BIT</span>
+      </h1>
 
       <div className={s.group}>
         <button
@@ -136,7 +170,7 @@ export function Toolbar() {
         </button>
       </div>
 
-      <div className={s.group}>
+      <div className={`${s.group} ${s.undoGroup}`}>
         <button className={s.pbtn} onClick={undo} disabled={!canUndo} aria-label="撤销">
           ↶ UNDO
         </button>
@@ -145,7 +179,7 @@ export function Toolbar() {
         </button>
       </div>
 
-      <div className={s.group}>
+      <div className={`${s.group} ${s.fileGroup}`}>
         <button className={s.pbtn} onClick={exportWav} disabled={rendering}>
           {rendering ? 'RENDER…' : 'EXPORT WAV'}
         </button>
@@ -155,20 +189,6 @@ export function Toolbar() {
         <button className={s.pbtn} onClick={() => fileRef.current?.click()}>
           LOAD JSON
         </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="application/json,.json"
-          className={s.fileInput}
-          onChange={(e) => {
-            const f = e.target.files?.[0]
-            if (f) onImportFile(f)
-            e.target.value = '' // 允许连续选择同一文件
-          }}
-        />
-      </div>
-
-      <div className={s.group}>
         <button className={s.pbtn} onClick={loadDemo}>
           DEMO
         </button>
@@ -176,6 +196,65 @@ export function Toolbar() {
           NEW
         </button>
       </div>
+
+      <div className={`${s.group} ${s.moreGroup}`} ref={moreRef}>
+        <button
+          className={s.moreBtn}
+          onClick={() => setMenuOpen(!menuOpen)}
+          aria-label="更多操作"
+        >
+          ⋯
+        </button>
+        {menuOpen && (
+          <div className={s.menu}>
+            <button className={s.menuItem} onClick={() => menuAction(exportWav)} disabled={rendering}>
+              {rendering ? 'RENDER…' : 'EXPORT WAV'}
+            </button>
+            <button className={s.menuItem} onClick={() => menuAction(exportJson)}>
+              SAVE JSON
+            </button>
+            <button
+              className={s.menuItem}
+              onClick={() => menuAction(() => fileRef.current?.click())}
+            >
+              LOAD JSON
+            </button>
+            <button className={s.menuItem} onClick={() => menuAction(loadDemo)}>
+              DEMO
+            </button>
+            <button className={s.menuItem} onClick={() => menuAction(clearProject)}>
+              NEW
+            </button>
+            <div className={s.menuSep} />
+            <button
+              className={s.menuItem}
+              onClick={() => menuAction(undo)}
+              disabled={!canUndo}
+            >
+              ↶ UNDO
+            </button>
+            <button
+              className={s.menuItem}
+              onClick={() => menuAction(redo)}
+              disabled={!canRedo}
+            >
+              ↷ REDO
+            </button>
+          </div>
+        )}
+      </div>
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept="application/json,.json"
+        className={s.fileInput}
+        onChange={(e) => {
+          const f = e.target.files?.[0]
+          if (f) onImportFile(f)
+          e.target.value = '' // 允许连续选择同一文件
+        }}
+      />
     </header>
   )
 }
