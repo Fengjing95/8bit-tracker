@@ -111,7 +111,7 @@ class AudioEngine {
   private stepCount = (): number => stepCountOf(this.project?.bars ?? DEFAULT_BARS)
 
   // ── 传输 ─────────────────────────────────────────────────────
-  async play(): Promise<void> {
+  async play(startStep = 0): Promise<void> {
     await this.ensure()
     if (!this.ctx || this.scheduler.playing) return
     if (this.ctx.state === 'suspended') await this.ctx.resume()
@@ -121,6 +121,7 @@ class AudioEngine {
       this.stepCount,
       (step, time, dur) => this.scheduleStep(step, time, dur),
       (step) => this.dispatchStep(step),
+      startStep,
     )
   }
 

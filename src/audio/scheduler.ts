@@ -54,6 +54,7 @@ export class Scheduler {
     getStepCount: () => number,
     onSchedule: ScheduleStepFn,
     onVisual: VisualStepFn,
+    startStep = 0,
   ): void {
     if (this.playing) return // 幂等(StrictMode / 双击保护)
     this.playing = true
@@ -62,7 +63,7 @@ export class Scheduler {
     this.getStepCount = getStepCount
     this.onSchedule = onSchedule
     this.onVisual = onVisual
-    this.step = 0
+    this.step = startStep
     this.queue = []
     this.nextTime = ctx.currentTime + 0.08
 

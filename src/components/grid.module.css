@@ -135,16 +135,62 @@
     repeating-linear-gradient(to right, #131922 0 30px, #0e1116 30px 120px);
 }
 
-/* ── 播放头覆盖列(播放时由 Grid 用 ref 平移) ── */
+/* ── 统一列级光标(常驻):待机 = 黄色薄纱停在光标步;播放 = 绿色播放头;录制 = 红色 ──
+   半透明底对齐单元格;::after 为单元格居中的 2px 竖线(播放头针线) */
 .phColumn {
   position: absolute;
   top: 0;
   bottom: 0;
   left: 0;
   width: 30px;
-  z-index: 2;
-  background: rgba(61, 255, 124, 0.16);
+  z-index: 1; /* 低于音符:半透明列扫过时音符保持清晰 */
+  background: rgba(255, 210, 63, 0.1);
   pointer-events: none;
+}
+
+.phColumn::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-1px);
+  background: var(--yellow);
+}
+
+.playing .phColumn {
+  background: rgba(61, 255, 124, 0.16);
+}
+
+.playing .phColumn::after {
+  background: var(--green);
+}
+
+.rec .phColumn {
+  background: rgba(255, 92, 92, 0.12);
+}
+
+.rec .phColumn::after {
+  background: var(--red);
+}
+
+/* ── 标尺三角指针(库乐队风格):对准单元格中心,颜色随模式 ── */
+.cursorPin {
+  position: absolute;
+  top: 1px;
+  left: 0;
+  z-index: 5;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 8px solid var(--yellow);
+  pointer-events: none;
+}
+
+.rec .cursorPin {
+  border-top-color: var(--red);
 }
 
 /* ── 音符块(拖动 = 移位;右缘把手 = 改时值) ── */
@@ -152,7 +198,7 @@
   position: absolute;
   top: 2px;
   bottom: 2px;
-  z-index: 3;
+  z-index: 2; /* 低于 sticky 行标签(z3):横向滚动时音符从音名标签下方滑过,不遮标识 */
   background: var(--nc);
   border: 1px solid #04070a;
   box-shadow:
@@ -193,7 +239,7 @@
 /* ── 光标:插入态(虚线 ghost,宽度即时值)/ 选中态(实线框包裹音符) ── */
 .caret {
   position: absolute;
-  z-index: 4;
+  z-index: 2; /* 与音符同层(靠 DOM 顺序盖在音符上),低于 sticky 行标签:滚动时不遮音名 */
   height: 20px;
   border: 2px dashed var(--yellow);
   background: rgba(255, 210, 63, 0.08);
@@ -203,6 +249,35 @@
 .caretSel {
   border-style: solid;
   background: rgba(255, 210, 63, 0.14);
+}
+
+/* ── REC 录制模式光标:红色实线框,区别于编辑态的黄色 ── */
+.caret.rec {
+  border: 2px solid var(--red);
+  background: rgba(255, 92, 92, 0.12);
+}
+
+/* ── REC 倒数阶段:光标停在起始步闪烁(1 小节拍点计数) ── */
+.caret.countin {
+  animation: caret-blink 0.5s steps(2, jump-none) infinite;
+}
+
+@keyframes caret-blink {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.2;
+  }
+}
+
+/* ── 框选覆盖层:品红虚线框 + 8% 填充(几何由 Grid.tsx 常量计算) ── */
+.region {
+  position: absolute;
+  z-index: 2; /* 同 caret:低于 sticky 行标签,滚动时不遮音名 */
+  border: 2px dashed #ff4fd8;
+  background: rgba(255, 79, 216, 0.08);
+  pointer-events: none;
 }
 
 /* ── 鼓行 ── */

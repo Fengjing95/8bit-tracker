@@ -122,7 +122,7 @@ requestAnimationFrame(主线程):queue 中 time ≤ now 的条目 → onVisual(s
 
 ```ts
 ensure(): Promise<void>                  // 手势后创建/恢复,幂等
-play() / stop() / isPlaying()
+play(startStep?) / stop() / isPlaying()
 onStepPlayed(cb): () => void             // 当前步回调(−1=清场)
 syncProject(p)                           // store → 引擎:重建 step→notes 索引 + 应用混音
 previewOn(key, trackIdx, midi) / previewOff(key) / releaseAllPreviews()
@@ -148,8 +148,11 @@ renderWav(): Promise<Blob>               // 委托 exporter,使用当前已同�
 | `past / future` | 撤销/重做栈:project 的 JSON 深拷贝快照,上限 100 条(超出丢最旧) |
 | `selected / playing / toast` | 选中轨、传输态镜像、Toast(带 seq 触发) |
 | `panelOpen / keyboardOpen / writeMode` | 移动端 UI 态:轨道抽屉开合、键盘收合、虚拟键盘写入模式(不持久化、不入历史,见 §9) |
-| `setBpm / setBars / select / setVolume / toggleMute / toggleSolo / setInstrument` | 工程字段编辑;setBars 缩小时丢弃范围外音符并钳制长度 |
+| `caret / insertLen` | 键盘写入光标与写入时值(不入历史) |
+| `region / clipboard` | 框选区域(原始两角 `{s0,s1,p0,p1}`,归一化在使用处)/ 剪贴板(相对坐标音符 + 宽度 w);均不入历史、不持久化(见 §5.5) |
+| `setBpm / setBars / select / setVolume / toggleMute / toggleSolo / setInstrument` | 工程字段编辑;setBars 缩小时丢弃范围外音符并钳制长度、框选越界直接清除;select 切轨清除框选(剪贴板保留,供跨轨粘贴) |
 | `addNote / removeNote / setNoteLen / toggleDrum / writeNote / setNotePos` | 网格编辑(len 钳制 1..bars×16−step;drum 为开关;writeNote 单音覆盖本步;setNotePos 被占/越界原地不动) |
+| `setRegion / clearRegion / copySelection / cutSelection / pasteClipboard / deleteRegion` | 框选与剪贴板(详见 §5.5) |
 | `loadProject / loadDemo / clearProject` | 导入、示例曲、清空 |
 | `undo / redo` | undo 弹 `past` 恢复并把当前工程压入 `future`;redo 反向;恢复用快照新引用 ⇒ 引擎同步与自动保存自动生效 |
 | `playTransport / stopTransport` | 调 engine 并镜像 playing;失败回滚并 Toast |
@@ -178,22 +181,33 @@ renderWav(): Promise<Blob>               // 委托 exporter,使用当前已同�
 - 音符块为行内绝对定位元素(`left = GUTTER + step×CW`,`width = len×CW`),`data-step/data-len/data-pitch` 供交互、删除与发声加亮(`.ring`)使用;鼓行复用同一音符块结构(宽 1 格,按鼓件着色);
 - 鼓轨 `DrumRow`:4 行(Kick 红 / Snare 黄 / Hi-hat 青 / Crash 品红),单元格按 `(step, kind)` 开关,颜色区分鼓件。
 
-### 5.2 播放头(绕过 React state)与自动滚屏
+### 5.2 统一列级光标(常驻)与播放头(绕过 React state)
+
+**统一列级光标**:位置光标与播放头共用同一列元素(每行一个绝对定位 `[data-ph]`,
+音高行/鼓行/标尺各一 + 标尺 `[data-cursor-pin]` 三角指针),`translateX` 平移替代逐格
+class 切换,每步仅 ~29 次 style 写入,零 re-render。三态配色由 `.wrap` 上的
+`rec` / `playing` class 驱动:待机黄色薄纱(停在光标步,**常驻**,默认第 1 小节起始)、
+播放绿色(即播放头)、录制红色(跟随 REC 步进时钟)。
 
 ```
 engine.onStepPlayed(step):        // 每步回调,直接操作 style/class,零 re-render
-  x = step < 0 ? 0 : GUTTER + step×CW
-  wrap.querySelectorAll('[data-ph]').forEach  → translateX(x);step<0 时 visibility hidden
-  wrap.querySelectorAll('[data-note]').forEach→ 区间命中(step ∈ [a, a+len))加 .ring
-
-自动滚屏(同一回调内,step < 0 即停止态时不干预用户滚动):
+  step < 0(停止)              → 列/指针回弹到 caret.step;熄灭 .ring;lastStep = -1
+  否则                          → move(step):全部 [data-ph] translateX(GUTTER + step×CW)
+                                   (半透明底对齐单元格;::after 为居中 2px 竖线针线)
+                                   指针 [data-cursor-pin] translateX(… + CW/2 − 6,对准单元格中心)
+                                   [data-note] 区间命中(step ∈ [a, a+len))加 .ring
+未播放时 caret.step 变化(标尺点击/方向键/REC 时钟):
+  useStore.subscribe → 列与指针跟随(播放中忽略——列归播放头所有)
+自动滚屏(播放回调内):
   回绕检测:上一可听步 ≥ 0 且 step 变小 → scroller.scrollLeft = 0(循环回绕归零)
   右侧余量:x − scrollLeft > clientWidth − 4×CW − GUTTER
            → scroller.scrollLeft = x − clientWidth + 4×CW + GUTTER(每步直接赋值,无动画)
 ```
 
-- 播放头覆盖列为每行一个绝对定位 `[data-ph]`(音高行/鼓行/标尺各一),平移替代逐格 class 切换,
-  每步仅 ~29 次 style 写入;发声音符加亮 `.ring` 为每步 ~百次量级 classList 切换;
+- 标尺三角指针(`.cursorPin`,库乐队风格 ▼)对准单元格中心,待机黄 / 录制红;
+- 音高行插入光标(虚线 ghost / 选中实线框,见 §5.3)独立于列光标:列指示步进/传输位置,
+  行光标指示写入音高与选中;鼓轨无行光标(位置由红色列指示);
+- 播放中点击标尺仅改写 caret(预定位),列归播放头所有不受干扰;停止后回弹 caret 步;
 - 自动滚屏只在播放回调里触发:非播放状态完全不干预用户滚动;`scrollLeft` 直接赋值,
   回绕(步号从大值跳 0)时立即滚回开头;后台标签 rAF 暂停时回调不触发,视觉冻结属预期;
 - 上一可听步在回调闭包内局部变量记录(不入 React 状态/ref),effect 清理时随闭包销毁。
@@ -201,13 +215,15 @@ engine.onStepPlayed(step):        // 每步回调,直接操作 style/class,零 r
 ### 5.3 指针交互状态机(pitched,选中模型)
 
 ```
-pointerdown 空格              → addNote(len = insertLen)→ 选中该音符(mouse/pen 即刻;touch 见下)
-pointerdown 音符              → 选中(不删除):光标吸附到音符,实线黄框包裹
+pointerdown 空格              → addNote(len = insertLen)→ 选中该音符(mouse/pen 即刻;touch 见下;
+                                放置前先清除框选)
+Shift + 空白 pointerdown      → 框选拖拽(不放置,见 §5.5)
+pointerdown 音符              → 选中(不删除,先清除框选):光标吸附到音符,实线黄框包裹
   ├ 右缘 10px 拖动            → resize:横向改时值
   └ 其余区域拖动              → move:移位(步进 + 音高),选中跟随(setNotePos 返回实际落点)
 pointerup                     → 无删除语义(防误操作)
 contextmenu                   → preventDefault;命中音符则删除(显式快捷删除)
-Esc(键盘)                   → 先取消选中;无选中时停止播放
+Esc(键盘)                   → 先清框选;再取消选中;均无时停止播放
 ```
 
 触控分级(`pointerType`):mouse/pen 保持上表不变;touch 时空格/鼓格不再 pointerdown
@@ -225,10 +241,49 @@ Esc(键盘)                   → 先取消选中;无选中时停止播放
 | Z S X D C V G B H N J M , | C3…C4(含 S/D/G/H/J 黑键) | Q 2 W 3 E R 5 T 6 Y 7 U I | C4…C5(高八度) |
 
 - 底部虚拟键盘与键位一一对应(白键标字母,C 键标音名);
-- Space = 播放/停止,Esc = 停止,鼓轨下 Z/X/C/V 试奏 Kick/Snare/Hi-hat/Crash;
-- **键盘写入**:方向键移动网格光标(Shift+左右 ±4 步),Z/Q 行字符键在光标步写入对应音高并前进一格(`writeNote` 单音覆盖本步),`[` `]` 调整写入时值(鼠标放置共用此时值);移动音高与写入均有 160ms 短促试听;
-- **删除语义**:Backspace = 光标处有音符(点击选中态)→ 删除之;否则回退一格删除(打字流"打错即退即重打")。Delete = 删除光标处音符(先精确 (step,pitch),否则本步任意音高并把光标对齐过去)。Esc = 取消选中,再按停止播放;
+- Space = 播放/停止,Esc = 停止,鼓轨下 Z/X/C/V 试奏 Kick/Snare/Hi-hat/Crash(REC 录制模式改为写入光标当前步,只加不删,见 §9.3);
+- **键盘写入**:方向键移动网格光标(Shift+左右 ±4 步;**点击标尺任意步**亦可移动光标),Z/Q 行字符键在光标步写入对应音高并前进一格(`writeNote` 单音覆盖本步;REC 模式 1 步起录、按住持续发声,松手按持按步数定稿,光标由步进时钟推进),`[` `]` 调整写入时值(鼠标放置共用此时值);移动音高与写入均有 160ms 短促试听;
+- **播放互斥**:播放中锁定一切音符编辑——网格手势(放置/拖动/改长/开关鼓件/右键删除)、字符键写入、Backspace/Delete、剪切与粘贴均无效(字符键/鼓键退化为纯试听),EDIT 菜单 CUT / PASTE 置灰;PLAY 从光标步开始播放(`engine.play(startStep)`);
+- **删除语义**:Backspace/Delete = 框选存在时批量删除框内全部音符(一条历史);否则 Backspace = 光标处有音符(点击选中态)→ 删除之,否则回退一格删除(打字流"打错即退即重打"),Delete = 删除光标处音符(先精确 (step,pitch),否则本步任意音高并把光标对齐过去)。Esc = 先清框选,再取消选中,均无时停止播放;
 - `e.repeat` 忽略;输入控件聚焦时不劫持;窗口失焦统一 `releaseAllPreviews`(安全停 4s 兜底)。
+
+### 5.5 框选与剪贴板(region / clipboard)
+
+**框选(region)**:store 存原始两角 `{s0,s1,p0,p1}`(拖拽中任一角可为起点),归一化在使用处;
+仅音轨支持(切到鼓轨即清,鼓行 Shift 点击/拖拽为空操作)。渲染为 `.lanes` 内绝对定位覆盖层:
+品红 `#ff4fd8` 2px 虚线框 + 8% 填充,`pointer-events:none`,几何由常量计算
+(`left = GUTTER + min(s0,s1)·CW`、`top = (PITCH_MAX − max(p0,p1))·RH + 1`、
+`width = (|s1−s0|+1)·CW`、`height = (|p1−p0|+1)·RH − 2`)。
+
+```
+Shift + 空白 pointerdown     → 进入 region 拖拽(pointermove 经 lanes 几何换算实时 setRegion;与
+                               非 Shift 放置/音符拖动/右缘改长互斥:框选仅在 Shift+空白起点激活)
+pointerup                    → 提交;起止同格(位移 <1 格)视为清除
+清除时机                     → 点击空白(非 Shift)/ 点击或拖动音符 / 切轨 / setBars 缩小后越界 /
+                               Esc(优先级:先清框选,再清 caret 选中,最后停播放)
+```
+
+**剪贴板(clipboard)**:`{ notes: [{dStep, dPitch, len}], w }`,均为不入历史的 UI 态。
+
+- **copy**:有框选 → 收集当前轨落在框内(以音符起点格 (step,pitch) 判定)的音符,转相对
+  框左下角(最小 step、最小 pitch)的偏移;无框选 → 复制整轨,w = 全轨步数。整轨剪贴板的
+  dPitch 取相对**轨内内容最低音**的偏移(虚拟框左下角 = (0, 最低音)),使粘贴公式
+  `pitch = caret.pitch + dPitch` 与框选剪贴板同构 —— 若按绝对音高存储,anchor.pitch(≥48)
+  基准下所有音符必然越界被跳过。鼓轨复制/剪切为空操作(Toast 提示,本期不支持)。
+- **cut** = copy + 删除框内全部音符(一条历史);**无框选时 cut 为空操作**。
+- **paste**:锚点 = 当前 caret(无 caret 先设 `{0,60}`),粘贴到**当前选中轨**(跨轨复制
+  melody → harmony 是明确用例)。逐音符:`step = anchor.step + dStep`、`pitch = anchor.pitch + dPitch`;
+  pitch 越界 [PITCH_MIN,PITCH_MAX] 跳过、step ≥ 步数丢弃、len 钳到轨尾;与现有音符同格
+  (step,pitch) 则替换(长度取新值),其余共存(不清除目标轨同步骤的其他音高)。一次粘贴
+  = 一条历史(空粘贴不产生空历史条目)。粘贴后清框选,caret 移到
+  `{step: min(anchor.step + w, 步数−1), pitch: anchor.pitch}` —— 连续 Ctrl+V 依次后移 w 步铺段落。
+- **批量删除**:框选存在时 Backspace/Delete = 删除框内全部音符 + 清框选(一条历史);
+  无框选保持原语义(§5.4)不变。Shift 框选之外的任何放置(鼠标/触控/键盘写入)均先清框选。
+
+编辑操作在顶栏 **EDIT▾** 菜单(UNDO/REDO/COPY/CUT/PASTE,右侧对齐快捷键提示,Mac 显示
+CMD 系;enabled 随框选/剪贴板/当前轨上下文:鼓轨全禁用、CUT 需框选、播放中 CUT/PASTE
+置灰、无框选且轨内无音符时 COPY 禁用);快捷键
+Ctrl/Cmd+C / X / V(输入控件聚焦时不劫持)。
 
 ## 6. UI 样式规格
 
@@ -242,6 +297,21 @@ Esc(键盘)                   → 先取消选中;无选中时停止播放
 | 扫描线 | `body::after` fixed overlay,repeating-gradient 1px/3px | CRT 质感,克制 |
 
 布局:`100vh` 三段(Toolbar / TrackPanel+Grid / Keyboard);Grid 内部滚动(标尺 sticky-top、行标签 sticky-left);BootOverlay 全屏启动页(闪烁 PRESS START,兼作 autoplay 手势)。
+
+### 6.1 顶栏 OS 菜单栏(Toolbar)
+
+仿老式 tracker / 经典 Mac 菜单条:`品牌 │ FILE▾ EDIT▾ │ ▶ PLAY ● REC │ BPM −120+ │ BARS −2+`。
+
+- **FILE▾**:EXPORT WAV(渲染中显示 RENDER… 并置灰)/ SAVE JSON / LOAD JSON / ─── / DEMO / NEW;
+- **EDIT▾**:UNDO / REDO / ─── / COPY / CUT / PASTE,条目右侧对齐快捷键提示(`CTRL+Z` /
+  `CMD+Z`,按 `navigator.platform` 判定);无可用操作置灰(无历史 / 鼓轨 / 无框选 / 播放中);
+- 菜单交互:点击展开 → 展开时悬停另一菜单名即切换(`pointerenter`)→ 点击空白(外点
+  pointerdown)或 Esc 收起;Esc 用 `window` **捕获段**监听,先于 `useComputerKeys`
+  消费,避免顺手停播放;
+- ▶ PLAY / ● REC 并排常驻按钮组(播放中 ▶→■ STOP 红、录制中 REC 品红实底);
+  BPM / BARS 保持 − 输入 + 步进;
+- ⋯ 折叠按钮退役:编辑/文件操作均入菜单,移动端无折叠需求(≤640px 仅收紧尺寸与标题缩写);
+- 下拉面板:像素双线边框 + 硬投影,条目悬停黑底白字反色(快捷键提示转灰白)。
 
 ## 7. 资源清理与工程约束
 
@@ -266,7 +336,7 @@ Esc(键盘)                   → 先取消选中;无选中时停止播放
 | 断点 | 变化 |
 | --- | --- |
 | ≤1024px | TrackPanel 固定侧栏 → **抽屉**(默认收起):`position:fixed` 左侧 `min(300px, 86vw)`,`translateX(-104%)` 收起 / `.open` 滑出,半透明背板点击关闭;Toolbar 出现 ☰ 像素按钮切换(store `panelOpen`);Grid 占满剩余宽度 |
-| ≤640px | Toolbar 紧凑单行:标题缩写 `8BIT`(两 span 断点切换)、▶/■、BPM/BARS 输入框、☰、⋯;`BPM/BARS` 文字标签、LOOP 徽标、UNDO/REDO、文件组隐藏,文件操作 + 撤销/重做收进 **⋯ 弹出菜单**(外点关闭,条目 disabled 态同步);group gap/按钮/输入框尺寸再收一档,375px 宽验证单行,320px 优雅两行 |
+| ≤640px | Toolbar 为 OS 菜单栏紧凑单行:标题缩写 `8BIT`(两 span 断点切换)、FILE/EDIT 菜单、▶/■、● REC、BPM/BARS 输入框、☰;`BPM/BARS` 文字标签、LOOP 徽标隐藏,菜单名/按钮/输入框尺寸再收一档,375px 宽验证单行,320px 优雅两行 |
 | 全部 | 键盘区 **收起/展开按钮**(store `keyboardOpen`,默认展开):收起仅留标题行,给网格让出高度;≤640px 琴键容器 `overflow-x:auto`(黑键 left 是按 34px 网格内联定位的 JS 常量,不改键宽;白键 `flex: 0 0 34px` 禁 flex 收缩,否则白键被压窄而黑键不动 → 错位)、鼓垫 2×2 换行 |
 
 视口与安全区:`.app` 高度 `100vh`,`@supports (height: 100dvh)` 升级为 `100dvh`(iOS 动态地址栏);
@@ -286,14 +356,29 @@ Toolbar/Keyboard 内边距用 `max(原值, env(safe-area-inset-*))`;全局 `html
 - tap 判定监听为 Grid effect 内常驻 window `pointerup/pointercancel`(无待定 tap
   立即返回),effect 清理退订,StrictMode 安全。
 
-### 9.3 虚拟键盘 WRITE 模式(补齐移动端 tracker 写入流)
+### 9.3 虚拟键盘双模式:编辑 / 录制 REC(移动端 tracker 录制流)
 
-- 键盘标题行右侧 **WRITE toggle**(store `writeMode`,不持久化):关 = 现状试奏;
-  开 = 点琴键在光标处写入并前进一格——音轨复用 `writeNote + setCaret`
-  (光标为空先设 `{step:0, pitch:60}`,len 钳 `insertLen`),160ms 短促试听,
-  与 `useComputerKeys` 写入流一致;鼓轨点垫 = 光标步**无同鼓件才写入**(只加不删)
-  并前进 + `previewDrum` 试奏;
-- 开启时琴键/鼓垫品红描边、WRITE 按钮品红实底;键盘区另有收合按钮(§9.1)。
+- 键盘标题行右侧 **● REC toggle**(store `recMode`,不持久化),与播放**互斥**
+  (开启录制先停播放;开播即退出录制),双模式:
+  - **编辑(默认)**:点琴键/鼓垫纯试奏(按住发声),音符用鼠标在网格上操作;
+  - **录制(REC)**:进入先**倒数 1 小节**(光标停在起始步闪烁 `.countin`,每拍一枚
+    hi-hat click 计数,倒数中敲键只试听不写入),倒数结束从光标步开始录制——步进光标
+    按 BPM **自动前进**(16 分音符步长,`60/BPM/4` 秒),点琴键 / 鼓垫 / 电脑 Z·Q 行(音)
+    与 Z/X/C/V(鼓)写入**光标当前步**,不手动前进;音符 **1 步起录、按住持续发声,
+    松手按持按步数定稿时值**(中间延长 `setNoteLen(…, push=false)` 不入撤销历史,
+    定稿一次性入账;短按 = 16 分音符);鼓**无同鼓件才写入**(只加不删)+
+    `previewDrum` 试奏;写入各自入撤销历史;
+- 步进时钟(`hooks/useStepRecorder`,挂载于 App,启动后生效)两相位:
+  - **倒数**(`recCountin = true`):60ms 轮询计步,`idx % 4 === 0` 发 click,
+    计满 1 小节(16 步)置 `recCountin = false`;
+  - **录制**(`recCountin = false`):本地相位时钟 —— `t0` 使「倒数结束时刻」对应
+    `caret.step`,每 60ms 轮询 `floor((now − t0)/stepDur) % stepCount` 推步
+    (不累积定时器漂移);caret 为空先设 `{step:0, pitch:60}`;BPM / 小节数变化
+    重建时钟并从当前 step 续相位;
+- 光标自由控制:**点击标尺任意步移动光标**(不放置音符),方向键微调;
+  光标视觉:录制态音轨 caret 红色实线框(`.caret.rec`),倒数时闪烁(`.caret.countin`);
+  鼓轨仅在 REC 显示步进光标(纵跨 4 鼓件行的红框)——编辑模式鼓轨无光标;
+- 开启时琴键/鼓垫品红描边、REC 按钮品红实底;键盘区另有收合按钮(§9.1)。
 
 ### 9.4 音频生命周期与 PWA
 

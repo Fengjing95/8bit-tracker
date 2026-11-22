@@ -8,6 +8,7 @@ import { Toolbar } from './components/Toolbar'
 import { TrackPanel } from './components/TrackPanel'
 import { useComputerKeys } from './hooks/useComputerKeys'
 import { useEngineSync } from './hooks/useEngineSync'
+import { useStepRecorder } from './hooks/useStepRecorder'
 import { useVisibilityResume } from './hooks/useVisibilityResume'
 import { useStore } from './state/store'
 import st from './app.module.css'
@@ -16,6 +17,7 @@ export default function App() {
   const [booted, setBooted] = useState(false)
   useEngineSync()
   useComputerKeys(booted)
+  useStepRecorder(booted)
   useVisibilityResume()
 
   // 启动页手势:在这里创建/恢复 AudioContext(autoplay 政策);ensure 幂等

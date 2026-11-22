@@ -55,10 +55,10 @@ const stepFromRow = (rowEl: HTMLElement, clientX: number, maxStep: number): numb
 }
 
 interface DragState {
-  /** resize = 右缘把手改时值;move = 拖动音符移位(步进 + 音高) */
-  mode: 'resize' | 'move'
+  /** resize = 右缘把手改时值;move = 拖动音符移位(步进 + 音高);region = Shift 框选 */
+  mode: 'resize' | 'move' | 'region'
   pitch: number
-  step: number // resize 源起始步
+  step: number // resize 源起始步;region 起始角
   curStep: number
   curPitch: number
   origLen: number
@@ -144,7 +144,7 @@ const PitchRow = memo(function PitchRow({
           style={{ left: GUTTER + n.step * CW + 1, width: Math.max(10, n.len * CW - 3) }}
         />
       ))}
-      <div className={s.phColumn} data-ph style={{ visibility: 'hidden' }} />
+      <div className={s.phColumn} data-ph />
     </div>
   )
 })
@@ -197,7 +197,7 @@ const DrumRow = memo(function DrumRow({
           style={{ left: GUTTER + n.step * CW + 1, width: CW - 3 }}
         />
       ))}
-      <div className={s.phColumn} data-ph style={{ visibility: 'hidden' }} />
+      <div className={s.phColumn} data-ph />
     </div>
   )
 })
@@ -208,7 +208,11 @@ export function Grid() {
   const track = useStore((st) => st.project.tracks[st.selected])
   const bars = useStore((st) => st.project.bars)
   const caret = useStore((st) => st.caret)
+  const region = useStore((st) => st.region)
   const insertLen = useStore((st) => st.insertLen)
+  const recMode = useStore((st) => st.recMode)
+  const recCountin = useStore((st) => st.recCountin)
+  const playing = useStore((st) => st.playing)
   const stepCount = bars * BAR_STEPS
   const isDrum = track.instrument === 'noise'
   const notesByPitch = useNotesByPitch(track.notes, isDrum ? DRUM_PITCHES : PITCHES)
@@ -236,6 +240,7 @@ export function Grid() {
       if (tap.drum) {
         st.toggleDrum(st.selected, step, tap.pitch)
       } else {
+        st.clearRegion() // 触控放置同样先清框选
         st.addNote(st.selected, step, tap.pitch)
         st.setCaret({ step, pitch: tap.pitch }) // 放置后光标吸附该音符
       }
@@ -267,7 +272,7 @@ export function Grid() {
       }
       return
     }
-    // move:用 lanes 几何换算目标格(不依赖 DOM 时序),支持跨行改音高
+    // region / move:用 lanes 几何换算目标格(不依赖 DOM 时序),支持跨行改音高
     const lanes = lanesRef.current
     if (!lanes) return
     const rect = lanes.getBoundingClientRect()
@@ -282,6 +287,15 @@ export function Grid() {
           PITCH_MIN,
           Math.min(PITCH_MAX, PITCH_MAX - Math.floor((e.clientY - rect.top) / RH)),
         )
+    if (d.mode === 'region') {
+      // 框选:两角实时更新(存原始两角,归一化在使用处)
+      if (step !== d.curStep || pitch !== d.curPitch) {
+        d.curStep = step
+        d.curPitch = pitch
+        st.setRegion({ s0: d.step, s1: step, p0: d.pitch, p1: pitch })
+      }
+      return
+    }
     if (step !== d.curStep || pitch !== d.curPitch) {
       // 以"当前位置"为源持续移动;若用原始位置,首格之后源查找会落空
       const pos = st.setNotePos(st.selected, d.curStep, d.curPitch, step, pitch)
@@ -300,6 +314,11 @@ export function Grid() {
     window.removeEventListener('pointermove', onDragMove)
     window.removeEventListener('pointerup', endDrag)
     window.removeEventListener('pointercancel', endDrag)
+    if (d.mode === 'region') {
+      // 位移 <1 格(起止同格)视为清除框选;否则拖拽中已实时提交
+      const st = useStore.getState()
+      if (d.curStep === d.step && d.curPitch === d.pitch) st.clearRegion()
+    }
     // 选中模型:点击 = 选中(不删除);删除走 Backspace / Delete / 右键
   }, [onDragMove])
 
@@ -312,6 +331,7 @@ export function Grid() {
   const onRowDown = useCallback(
     (e: ReactPointerEvent<HTMLElement>, pitch: number): void => {
       if (e.button !== 0) return
+      if (useStore.getState().playing) return // 播放与编辑互斥:播放中锁定网格编辑
       const target = e.target as HTMLElement
       if (target.closest('[data-gutter]')) return
       const rowEl = e.currentTarget
@@ -322,6 +342,8 @@ export function Grid() {
         // 触控多指:已有拖拽/待定 tap 会话时只跟踪第一根
         if (e.pointerType === 'touch' && (dragRef.current || tapRef.current)) return
         // 命中音符:右缘 10px 为改时值把手,其余区域为整体拖动;点击 = 选中
+        // 任何音符交互(选中/拖动/改长)先清除框选
+        st.clearRegion()
         const rect = noteEl.getBoundingClientRect()
         const mode: DragState['mode'] = e.clientX >= rect.right - 10 ? 'resize' : 'move'
         const step0 = Number(noteEl.dataset.step)
@@ -349,7 +371,39 @@ export function Grid() {
           t0: performance.now(),
         }
         return
+      } else if (e.shiftKey) {
+        // Shift + 空白起点 = 框选(mouse/pen;touch 无 Shift 不进入此分支)
+        if (dragRef.current || tapRef.current) return
+        const lanes = lanesRef.current
+        if (!lanes) return
+        const rect = lanes.getBoundingClientRect()
+        const startStep = Math.max(
+          0,
+          Math.min(sc - 1, Math.floor((e.clientX - rect.left - GUTTER) / CW)),
+        )
+        const startPitch = Math.max(
+          PITCH_MIN,
+          Math.min(PITCH_MAX, PITCH_MAX - Math.floor((e.clientY - rect.top) / RH)),
+        )
+        st.setRegion({
+          s0: startStep,
+          s1: startStep,
+          p0: startPitch,
+          p1: startPitch,
+        })
+        dragRef.current = {
+          mode: 'region',
+          pitch: startPitch,
+          step: startStep,
+          curStep: startStep,
+          curPitch: startPitch,
+          origLen: 0,
+          rowEl,
+          pointerId: e.pointerId,
+        }
       } else {
+        // 普通放置:先清除框选,再放置
+        st.clearRegion()
         const step = stepFromRow(rowEl, e.clientX, sc)
         st.addNote(st.selected, step, pitch)
         st.setCaret({ step, pitch }) // 放置即选中,便于立即 Backspace 撤掉
@@ -372,7 +426,9 @@ export function Grid() {
   const onDrumDown = useCallback(
     (e: ReactPointerEvent<HTMLElement>, kind: number): void => {
       if (e.button !== 0) return
+      if (useStore.getState().playing) return // 播放与编辑互斥
       if ((e.target as HTMLElement).closest('[data-gutter]')) return
+      if (e.shiftKey) return // 鼓轨不支持框选:Shift 点击/拖拽为空操作
       if (e.pointerType === 'touch') {
         // 触控鼓行空格:tap 开关(滑动 = 滚动),不立即切换
         if (dragRef.current || tapRef.current) return
@@ -396,38 +452,61 @@ export function Grid() {
 
   const onContextMenu = useCallback((e: ReactMouseEvent): void => {
     e.preventDefault()
+    if (useStore.getState().playing) return // 播放与编辑互斥
     const noteEl = (e.target as HTMLElement).closest('[data-note]') as HTMLElement | null
     if (!noteEl) return
     const st = useStore.getState()
     st.removeNote(st.selected, Number(noteEl.dataset.step), Number(noteEl.dataset.pitch))
   }, [])
 
-  // ── 播放列高亮:调度器当前步回调 → ref 直移覆盖列(无 React state) ──
-  // 附带自动滚屏:播放头右侧不足 4 格余量时直接设定 scrollLeft(无动画),
-  // 循环回绕(步号从大值跳 0)滚回开头;step < 0(停止)不干预用户滚动。
+  // 点击标尺:自由移动写入光标到该步(不放置音符;播放中也可预定位)
+  const onRulerDown = useCallback((e: ReactPointerEvent<HTMLElement>): void => {
+    if (e.button !== 0) return
+    if ((e.target as HTMLElement).closest('[data-gutter]')) return
+    const st = useStore.getState()
+    const sc = st.project.bars * BAR_STEPS
+    const step = stepFromRow(e.currentTarget, e.clientX, sc)
+    st.setCaret({ step, pitch: st.caret?.pitch ?? 60 })
+  }, [])
+
+  // ── 统一列级光标:常驻显示光标所在步(默认第 1 小节起始;顶部标尺带三角指针),
+  // 播放时该列即播放头(自动滚屏 + 音符点亮),停止后回弹到光标步 ──
   useEffect(() => {
     const wrap = wrapRef.current
     if (!wrap) return
-    let lastStep = -1
-    const apply = (step: number): void => {
-      const x = step < 0 ? 0 : GUTTER + step * CW
+    const move = (step: number): void => {
+      const x = GUTTER + step * CW
       wrap.querySelectorAll<HTMLElement>('[data-ph]').forEach((el) => {
         el.style.transform = `translateX(${x}px)`
-        el.style.visibility = step < 0 ? 'hidden' : 'visible'
       })
-      wrap.querySelectorAll<HTMLElement>('[data-note]').forEach((el) => {
-        if (step < 0) {
+      const pin = wrap.querySelector<HTMLElement>('[data-cursor-pin]')
+      if (pin) pin.style.transform = `translateX(${x + CW / 2 - 6}px)` // 三角对准单元格中心
+    }
+    move(useStore.getState().caret?.step ?? 0)
+    // 未播放时光标步变化(标尺点击 / 方向键 / REC 步进时钟)→ 列与指针跟随
+    const unsubStore = useStore.subscribe((st, prev) => {
+      if ((st.caret?.step ?? 0) !== (prev.caret?.step ?? 0) && !engine.isPlaying()) {
+        move(st.caret?.step ?? 0)
+      }
+    })
+    // 播放:列即播放头;停止(调度器回 step<0)回弹到光标步并熄灭点亮
+    let lastStep = -1
+    const unsubEngine = engine.onStepPlayed((step) => {
+      if (step < 0) {
+        move(useStore.getState().caret?.step ?? 0)
+        wrap.querySelectorAll<HTMLElement>('[data-note]').forEach((el) => {
           el.classList.remove(s.ring)
-          return
-        }
+        })
+        lastStep = -1
+        return
+      }
+      const x = GUTTER + step * CW
+      move(step)
+      wrap.querySelectorAll<HTMLElement>('[data-note]').forEach((el) => {
         const a = Number(el.dataset.step)
         const len = Number(el.dataset.len)
         el.classList.toggle(s.ring, step >= a && step < a + len)
       })
-      if (step < 0) {
-        lastStep = -1
-        return
-      }
       const scroller = scrollerRef.current
       if (scroller) {
         if (lastStep >= 0 && step < lastStep) {
@@ -437,11 +516,16 @@ export function Grid() {
         }
       }
       lastStep = step
+    })
+    return () => {
+      unsubStore()
+      unsubEngine()
     }
-    return engine.onStepPlayed(apply)
   }, [])
 
-  // 光标渲染:落在音符上 = 选中态(实线框包住整音符);落在空格 = 插入态(虚线 ghost)
+  // 音高行写入光标:落在音符上 = 选中态(实线框包住整音符);落在空格 = 插入态(虚线 ghost);
+  // REC 录制模式加 .rec 红色样式,倒数阶段加 .countin 闪烁。
+  // 鼓轨无此光标 —— 步进位置由统一列级光标(红色)指示。
   const caretNode = (() => {
     if (isDrum || !caret) return null
     const cs = Math.min(caret.step, stepCount - 1)
@@ -450,7 +534,9 @@ export function Grid() {
       (noteAt ? noteAt.len : Math.max(1, Math.min(insertLen, stepCount - cs))) * CW
     return (
       <div
-        className={`${s.caret} ${noteAt ? s.caretSel : ''}`}
+        className={`${s.caret} ${noteAt ? s.caretSel : ''} ${recMode ? s.rec : ''} ${
+          recMode && recCountin ? s.countin : ''
+        }`}
         style={{
           left: GUTTER + cs * CW,
           top: (PITCH_MAX - caret.pitch) * RH + 1,
@@ -460,10 +546,34 @@ export function Grid() {
     )
   })()
 
+  // 框选覆盖层:品红虚线框 + 8% 填充(存原始两角,渲染时归一化;
+  // 仅音轨渲染 —— 切轨已清框选,此处为防御)
+  const regionNode = (() => {
+    if (isDrum || !region) return null
+    const s0 = Math.min(region.s0, region.s1)
+    const s1 = Math.max(region.s0, region.s1)
+    const p0 = Math.min(region.p0, region.p1)
+    const p1 = Math.max(region.p0, region.p1)
+    return (
+      <div
+        className={s.region}
+        style={{
+          left: GUTTER + s0 * CW,
+          top: (PITCH_MAX - p1) * RH + 1,
+          width: (s1 - s0 + 1) * CW,
+          height: (p1 - p0 + 1) * RH - 2,
+        }}
+      />
+    )
+  })()
+
   return (
-    <div className={s.wrap} ref={wrapRef}>
+    <div
+      className={`${s.wrap} ${recMode ? s.rec : ''} ${playing ? s.playing : ''}`}
+      ref={wrapRef}
+    >
       <div className={s.scroller} ref={scrollerRef}>
-        <div className={s.ruler}>
+        <div className={s.ruler} onPointerDown={onRulerDown}>
           <div className={s.corner} data-gutter>
             STEP
           </div>
@@ -478,7 +588,8 @@ export function Grid() {
               {st + 1}
             </div>
           ))}
-          <div className={s.phColumn} data-ph style={{ visibility: 'hidden' }} />
+          <div className={s.phColumn} data-ph />
+          <div className={s.cursorPin} data-cursor-pin />
         </div>
         <div className={s.lanes} ref={lanesRef} onContextMenu={onContextMenu}>
           {isDrum
@@ -502,6 +613,7 @@ export function Grid() {
                 />
               ))}
           {caretNode}
+          {regionNode}
         </div>
       </div>
     </div>

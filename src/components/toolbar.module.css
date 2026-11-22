@@ -37,9 +37,31 @@
   display: none;
 }
 
-/* ── ⋯ 更多菜单:仅 ≤640px ── */
-.moreGroup {
-  display: none;
+/* ── OS 风格菜单栏:FILE / EDIT(点击展开,悬停切换) ── */
+.menus {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.menuWrap {
+  position: relative;
+}
+
+.menuName {
+  font-family: var(--font-px);
+  font-size: 9px;
+  padding: 10px 10px;
+  cursor: pointer;
+  background: none;
+  color: var(--text);
+  border: none;
+}
+
+.menuName:hover,
+.menuNameOn {
+  background: #232c38;
+  outline: 2px solid #04070a;
 }
 
 .playBtn {
@@ -141,56 +163,40 @@
   outline-offset: -4px;
 }
 
-.pbtn {
+.recBtn {
   font-family: var(--font-px);
-  font-size: 8px;
-  padding: 9px 10px;
+  font-size: 10px;
+  padding: 10px 14px;
   cursor: pointer;
-  background: var(--panel2);
-  color: var(--text);
   border: 2px solid #04070a;
   box-shadow: 3px 3px 0 #000;
+  background: var(--panel2);
+  color: var(--text);
 }
-.pbtn:hover {
+.recBtn:hover {
   background: #232c38;
 }
-.pbtn:active {
+.recBtn:active {
   transform: translate(2px, 2px);
   box-shadow: 1px 1px 0 #000;
 }
-.pbtn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.recOn,
+.recOn:hover {
+  background: var(--magenta);
+  color: #2b0428;
 }
 
 .fileInput {
   display: none;
 }
 
-/* ── ⋯ 弹出菜单(≤640px 才可见) ── */
-.moreBtn {
-  font-family: var(--font-px);
-  font-size: 12px;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  cursor: pointer;
-  background: var(--panel2);
-  color: var(--text);
-  border: 2px solid #04070a;
-  box-shadow: 2px 2px 0 #000;
-}
-.moreBtn:active {
-  transform: translate(1px, 1px);
-  box-shadow: 1px 1px 0 #000;
-}
-
-.menu {
+/* ── 下拉菜单面板(OS 菜单栏;悬停项黑底白字反色) ── */
+.dropdown {
   position: absolute;
   top: calc(100% + 6px);
-  right: 0;
+  left: 0;
   z-index: 80;
-  min-width: 150px;
+  min-width: 200px;
   display: flex;
   flex-direction: column;
   background: var(--panel);
@@ -198,9 +204,13 @@
   box-shadow: 3px 3px 0 #000;
 }
 
-.menuItem {
+.item {
   font-family: var(--font-px);
   font-size: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
   text-align: left;
   padding: 10px 12px;
   cursor: pointer;
@@ -209,15 +219,23 @@
   border: none;
   border-bottom: 2px solid var(--line);
 }
-.menuItem:hover {
-  background: #232c38;
+.item:hover {
+  background: #000;
+  color: #fff;
 }
-.menuItem:disabled {
+.item .sc {
+  font-size: 7px;
+  color: var(--dim);
+}
+.item:hover .sc {
+  color: #9aa7b4;
+}
+.item:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.menuSep {
+.sep {
   height: 6px;
   background: var(--panel2);
 }
@@ -273,16 +291,12 @@
   .group {
     gap: 4px;
   }
-  .undoGroup,
-  .fileGroup {
-    display: none;
-  }
-  .moreGroup {
-    display: flex;
-    position: relative;
-  }
 
   .playBtn {
+    font-size: 8px;
+    padding: 6px 8px;
+  }
+  .recBtn {
     font-size: 8px;
     padding: 6px 8px;
   }
@@ -297,10 +311,16 @@
     padding: 5px 2px;
     font-size: 10px;
   }
-  .menuBtn,
-  .moreBtn {
+  .menuBtn {
     width: 24px;
     height: 24px;
     font-size: 10px;
+  }
+  .menuName {
+    font-size: 8px;
+    padding: 8px 6px;
+  }
+  .dropdown {
+    min-width: 170px;
   }
 }
