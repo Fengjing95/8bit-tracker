@@ -257,8 +257,9 @@
   background: rgba(255, 92, 92, 0.12);
 }
 
-/* ── REC 倒数阶段:光标停在起始步闪烁(1 小节拍点计数) ── */
-.caret.countin {
+/* ── REC 倒数阶段:列光标针线与指针闪烁(光标停在起始步) ── */
+.countin .phColumn::after,
+.countin .cursorPin {
   animation: caret-blink 0.5s steps(2, jump-none) infinite;
 }
 

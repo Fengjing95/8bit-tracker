@@ -209,7 +209,6 @@ export function Grid() {
   const bars = useStore((st) => st.project.bars)
   const caret = useStore((st) => st.caret)
   const region = useStore((st) => st.region)
-  const insertLen = useStore((st) => st.insertLen)
   const recMode = useStore((st) => st.recMode)
   const recCountin = useStore((st) => st.recCountin)
   const playing = useStore((st) => st.playing)
@@ -483,39 +482,47 @@ export function Grid() {
       if (pin) pin.style.transform = `translateX(${x + CW / 2 - 6}px)` // 三角对准单元格中心
     }
     move(useStore.getState().caret?.step ?? 0)
-    // 未播放时光标步变化(标尺点击 / 方向键 / REC 步进时钟)→ 列与指针跟随
+
+    // 视口跟随:光标右侧不足 4 格余量时推 scrollLeft;步号回绕滚回开头
+    // (播放头与 REC 步进光标共用——REC 时屏幕跟着光标走)
+    let lastFollow = -1
+    const follow = (step: number): void => {
+      const scroller = scrollerRef.current
+      if (!scroller) return
+      const x = GUTTER + step * CW
+      if (lastFollow >= 0 && step < lastFollow) {
+        scroller.scrollLeft = 0 // 循环回绕:滚回开头
+      } else if (x - scroller.scrollLeft > scroller.clientWidth - 4 * CW - GUTTER) {
+        scroller.scrollLeft = x - scroller.clientWidth + 4 * CW + GUTTER
+      }
+      lastFollow = step
+    }
+
+    // 未播放时光标步变化(标尺点击 / 方向键 / REC 步进时钟)→ 列跟随 + 视口跟随
     const unsubStore = useStore.subscribe((st, prev) => {
       if ((st.caret?.step ?? 0) !== (prev.caret?.step ?? 0) && !engine.isPlaying()) {
-        move(st.caret?.step ?? 0)
+        const s = st.caret?.step ?? 0
+        move(s)
+        follow(s)
       }
     })
-    // 播放:列即播放头;停止(调度器回 step<0)回弹到光标步并熄灭点亮
-    let lastStep = -1
+    // 播放:列即播放头;停止(调度器回 step<0)回弹到光标步并熄灭点亮(视图不干预)
     const unsubEngine = engine.onStepPlayed((step) => {
       if (step < 0) {
         move(useStore.getState().caret?.step ?? 0)
         wrap.querySelectorAll<HTMLElement>('[data-note]').forEach((el) => {
           el.classList.remove(s.ring)
         })
-        lastStep = -1
+        lastFollow = -1
         return
       }
-      const x = GUTTER + step * CW
       move(step)
+      follow(step)
       wrap.querySelectorAll<HTMLElement>('[data-note]').forEach((el) => {
         const a = Number(el.dataset.step)
         const len = Number(el.dataset.len)
         el.classList.toggle(s.ring, step >= a && step < a + len)
       })
-      const scroller = scrollerRef.current
-      if (scroller) {
-        if (lastStep >= 0 && step < lastStep) {
-          scroller.scrollLeft = 0 // 循环回绕:滚回开头
-        } else if (x - scroller.scrollLeft > scroller.clientWidth - 4 * CW - GUTTER) {
-          scroller.scrollLeft = x - scroller.clientWidth + 4 * CW + GUTTER
-        }
-      }
-      lastStep = step
     })
     return () => {
       unsubStore()
@@ -523,24 +530,21 @@ export function Grid() {
     }
   }, [])
 
-  // 音高行写入光标:落在音符上 = 选中态(实线框包住整音符);落在空格 = 插入态(虚线 ghost);
-  // REC 录制模式加 .rec 红色样式,倒数阶段加 .countin 闪烁。
-  // 鼓轨无此光标 —— 步进位置由统一列级光标(红色)指示。
+  // 音高行光标:仅"选中态"绘制实线框包住整音符(点击音符 = 选中,Backspace 删除目标);
+  // 空格插入态不再画虚线 ghost —— 位置由统一列级光标指示,推进时无多余方框。
+  // 鼓轨无此光标 —— 步进位置由列级光标指示。
   const caretNode = (() => {
     if (isDrum || !caret) return null
     const cs = Math.min(caret.step, stepCount - 1)
     const noteAt = notesByPitch.get(caret.pitch)?.find((n) => n.step === cs)
-    const width =
-      (noteAt ? noteAt.len : Math.max(1, Math.min(insertLen, stepCount - cs))) * CW
+    if (!noteAt) return null
     return (
       <div
-        className={`${s.caret} ${noteAt ? s.caretSel : ''} ${recMode ? s.rec : ''} ${
-          recMode && recCountin ? s.countin : ''
-        }`}
+        className={`${s.caret} ${s.caretSel} ${recMode ? s.rec : ''}`}
         style={{
           left: GUTTER + cs * CW,
           top: (PITCH_MAX - caret.pitch) * RH + 1,
-          width,
+          width: noteAt.len * CW,
         }}
       />
     )
@@ -569,7 +573,9 @@ export function Grid() {
 
   return (
     <div
-      className={`${s.wrap} ${recMode ? s.rec : ''} ${playing ? s.playing : ''}`}
+      className={`${s.wrap} ${recMode ? s.rec : ''} ${
+        recMode && recCountin ? s.countin : ''
+      } ${playing ? s.playing : ''}`}
       ref={wrapRef}
     >
       <div className={s.scroller} ref={scrollerRef}>

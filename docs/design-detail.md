@@ -198,14 +198,15 @@ engine.onStepPlayed(step):        // 每步回调,直接操作 style/class,零 r
                                    [data-note] 区间命中(step ∈ [a, a+len))加 .ring
 未播放时 caret.step 变化(标尺点击/方向键/REC 时钟):
   useStore.subscribe → 列与指针跟随(播放中忽略——列归播放头所有)
-自动滚屏(播放回调内):
-  回绕检测:上一可听步 ≥ 0 且 step 变小 → scroller.scrollLeft = 0(循环回绕归零)
+自动滚屏 follow(step)(播放回调与未播放光标移动共用——REC 时屏幕跟着光标走):
+  回绕检测:上一跟随步 ≥ 0 且 step 变小 → scroller.scrollLeft = 0(循环回绕归零)
   右侧余量:x − scrollLeft > clientWidth − 4×CW − GUTTER
            → scroller.scrollLeft = x − clientWidth + 4×CW + GUTTER(每步直接赋值,无动画)
+  停止(engine step<0)回弹光标步时不调 follow——视图停留在停止瞬间,不干预用户滚动
 ```
 
 - 标尺三角指针(`.cursorPin`,库乐队风格 ▼)对准单元格中心,待机黄 / 录制红;
-- 音高行插入光标(虚线 ghost / 选中实线框,见 §5.3)独立于列光标:列指示步进/传输位置,
+- 音高行选中实线框(见 §5.3)独立于列光标:列指示步进/传输位置,
   行光标指示写入音高与选中;鼓轨无行光标(位置由红色列指示);
 - 播放中点击标尺仅改写 caret(预定位),列归播放头所有不受干扰;停止后回弹 caret 步;
 - 自动滚屏只在播放回调里触发:非播放状态完全不干预用户滚动;`scrollLeft` 直接赋值,
@@ -231,7 +232,8 @@ Esc(键盘)                   → 先清框选;再取消选中;均无时停止�
 `touch-action: pan-x pan-y` 交给浏览器滚动(pointercancel 作废待定 tap);音符块
 `touch-action: none` 保留直接拖拽,多指只跟踪起始 pointerId(详见 §9.2)。
 
-选中与插入统一由光标承载:落在音符上为选中态(实线框),落在空格为插入态(虚线 ghost,宽度 = insertLen)。
+选中由行级实线框承载:光标落在音符上 = 选中态(实线框包住整音符,Backspace 删除目标);
+落在空格时不绘制任何行级框 —— 位置由统一列级光标指示(推进时无多余方框)。
 命中计算基于常量几何(rect + CW/GUTTER/RH);move 用 lanes 容器几何而非 DOM 命中,并以"当前位置"为源持续更新(否则首格之后源查找落空)。
 
 ### 5.4 键盘编辑(tracker 键位,`lib/keys.ts` 按 `e.code` 布局无关)
@@ -361,7 +363,7 @@ Toolbar/Keyboard 内边距用 `max(原值, env(safe-area-inset-*))`;全局 `html
 - 键盘标题行右侧 **● REC toggle**(store `recMode`,不持久化),与播放**互斥**
   (开启录制先停播放;开播即退出录制),双模式:
   - **编辑(默认)**:点琴键/鼓垫纯试奏(按住发声),音符用鼠标在网格上操作;
-  - **录制(REC)**:进入先**倒数 1 小节**(光标停在起始步闪烁 `.countin`,每拍一枚
+  - **录制(REC)**:进入先**倒数 1 小节**(列光标停在起始步闪烁 `.countin`,每拍一枚
     hi-hat click 计数,倒数中敲键只试听不写入),倒数结束从光标步开始录制——步进光标
     按 BPM **自动前进**(16 分音符步长,`60/BPM/4` 秒),点琴键 / 鼓垫 / 电脑 Z·Q 行(音)
     与 Z/X/C/V(鼓)写入**光标当前步**,不手动前进;音符 **1 步起录、按住持续发声,
@@ -376,7 +378,8 @@ Toolbar/Keyboard 内边距用 `max(原值, env(safe-area-inset-*))`;全局 `html
     (不累积定时器漂移);caret 为空先设 `{step:0, pitch:60}`;BPM / 小节数变化
     重建时钟并从当前 step 续相位;
 - 光标自由控制:**点击标尺任意步移动光标**(不放置音符),方向键微调;
-  光标视觉:录制态音轨 caret 红色实线框(`.caret.rec`),倒数时闪烁(`.caret.countin`);
+  光标视觉:列光标红色(`.rec .phColumn`/`.cursorPin`),倒数时列与指针闪烁
+  (`.countin`,动画作用于针线与指针,不再闪烁行级方框);音轨选中实线框在录制态同样转红;
   鼓轨仅在 REC 显示步进光标(纵跨 4 鼓件行的红框)——编辑模式鼓轨无光标;
 - 开启时琴键/鼓垫品红描边、REC 按钮品红实底;键盘区另有收合按钮(§9.1)。
 
